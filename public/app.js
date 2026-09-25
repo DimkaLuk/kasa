@@ -183,7 +183,7 @@ function reportText(r, items) {
     }
   }
   lines.push(`Витрати ${moneyT(r.expense)}${exp.length ? ", з них:" : ""}`);
-  for (const t of exp) lines.push(`• ${moneyT(t.amount)} — ${[t.transferId ? "Переказ у " + walletName(t.peerWallet || "") : t.category, t.comment].filter(Boolean).join(": ")}`);
+  for (const t of exp) lines.push(`• ${fmtDate(t.date)} — ${moneyT(t.amount)} — ${[t.transferId ? "Переказ у " + walletName(t.peerWallet || "") : t.category, t.comment].filter(Boolean).join(": ")}`);
   lines.push(`Залишок станом на ${fmtDate(r.date)}: ${moneyT(r.closing)}`);
   if (r.comment) lines.push("", r.comment);
   return lines.join("\n");
