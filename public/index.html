@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <title>Каса</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Вхід -->
+  <section id="login" class="login hidden">
+    <form id="loginForm" class="card login-card">
+      <div class="logo">₴</div>
+      <h1>Каса</h1>
+      <p class="muted">Введіть пароль доступу</p>
+      <input id="loginPass" type="password" autocomplete="current-password" placeholder="Пароль" required>
+      <button class="btn primary" type="submit">Увійти</button>
+      <p id="loginErr" class="error"></p>
+    </form>
+  </section>
+
+  <!-- Додаток -->
+  <div id="app" class="hidden">
+    <header class="top">
+      <h1 id="appTitle">Каса</h1>
+      <button id="logoutBtn" class="btn ghost small" title="Вийти">Вийти</button>
+    </header>
+
+    <nav class="tabs" id="tabs">
+      <button data-tab="overview" class="active">Огляд</button>
+      <button data-tab="tx">Операції</button>
+      <button data-tab="people">Учасники</button>
+      <button data-tab="settings">Налаштування</button>
+    </nav>
+
+    <main>
+      <!-- Огляд -->
+      <section data-view="overview">
+        <div class="stats">
+          <div class="stat big"><span>Баланс каси</span><b id="sBalance">0 ₴</b></div>
+          <div class="stat"><span>Надійшло за місяць</span><b id="sIncome" class="pos">0 ₴</b></div>
+          <div class="stat"><span>Витрачено за місяць</span><b id="sExpense" class="neg">0 ₴</b></div>
+          <div class="stat"><span>Оплатили цього місяця</span><b id="sPaid">0 / 0</b></div>
+        </div>
+        <div class="actions">
+          <button class="btn primary" data-add="income">+ Внесок</button>
+          <button class="btn danger" data-add="expense">− Витрата</button>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h2>По місяцях</h2>
+            <div id="monthChart" class="chart"></div>
+          </div>
+          <div class="card">
+            <h2>Витрати за категоріями <small class="muted">(поточний місяць)</small></h2>
+            <div id="catList"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Останні операції</h2>
+          <div id="recentList" class="list"></div>
+        </div>
+      </section>
+
+      <!-- Операції -->
+      <section data-view="tx" class="hidden">
+        <div class="filters card">
+          <input id="fSearch" type="search" placeholder="Пошук: ім'я, коментар, категорія">
+          <select id="fType">
+            <option value="">Усі типи</option>
+            <option value="income">Надходження</option>
+            <option value="expense">Витрати</option>
+          </select>
+          <input id="fFrom" type="date" title="З дати">
+          <input id="fTo" type="date" title="По дату">
+          <select id="fPeriod">
+            <option value="">Період…</option>
+            <option value="month">Цей місяць</option>
+            <option value="prev">Минулий місяць</option>
+            <option value="year">Цей рік</option>
+            <option value="all">Увесь час</option>
+          </select>
+        </div>
+        <div class="summary" id="txSummary"></div>
+        <div class="actions">
+          <button class="btn primary" data-add="income">+ Внесок</button>
+          <button class="btn danger" data-add="expense">− Витрата</button>
+          <button class="btn ghost" id="exportTxCsv">Експорт CSV</button>
+        </div>
+        <div id="txList" class="list"></div>
+      </section>
+
+      <!-- Учасники -->
+      <section data-view="people" class="hidden">
+        <div class="filters card">
+          <input id="pSearch" type="search" placeholder="Пошук учасника">
+          <select id="pFilter">
+            <option value="active">Активні</option>
+            <option value="unpaid">Не оплатили цей місяць</option>
+            <option value="all">Усі</option>
+            <option value="inactive">Неактивні</option>
+          </select>
+          <button class="btn primary" id="addPerson">+ Учасник</button>
+          <button class="btn ghost" id="bulkPeople">Додати списком</button>
+        </div>
+        <div class="summary" id="pSummary"></div>
+        <div id="peopleList" class="list"></div>
+      </section>
+
+      <!-- Налаштування -->
+      <section data-view="settings" class="hidden">
+        <form id="settingsForm" class="card form">
+          <h2>Загальні</h2>
+          <label>Назва каси<input name="title" maxlength="80"></label>
+          <label>Щомісячний внесок, ₴ <small class="muted">(0 — не відстежувати)</small><input name="monthlyFee" type="number" min="0" step="0.01"></label>
+          <label>Категорії витрат <small class="muted">(кожна з нового рядка)</small><textarea name="categories" rows="6"></textarea></label>
+          <button class="btn primary" type="submit">Зберегти</button>
+        </form>
+        <div class="card form">
+          <h2>Резервна копія</h2>
+          <p class="muted">Завантажте всі дані у файл або відновіть з файлу. Перед відновленням сервер автоматично зберігає поточну копію.</p>
+          <div class="actions">
+            <button class="btn ghost" id="backupBtn">Завантажити копію (JSON)</button>
+            <label class="btn ghost file">Відновити з файлу<input type="file" id="restoreFile" accept=".json,application/json"></label>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Модальне вікно -->
+  <dialog id="modal">
+    <form method="dialog" id="modalForm" class="form">
+      <h2 id="modalTitle"></h2>
+      <div id="modalBody"></div>
+      <p id="modalErr" class="error"></p>
+      <div class="actions end">
+        <button type="button" class="btn danger ghost hidden" id="modalDelete">Видалити</button>
+        <span class="grow"></span>
+        <button type="button" class="btn ghost" id="modalCancel">Скасувати</button>
+        <button type="submit" class="btn primary" id="modalOk">Зберегти</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast"></div>
+  <script src="app.js" type="module"></script>
+</body>
+</html>
