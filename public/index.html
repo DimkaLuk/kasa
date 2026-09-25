@@ -32,7 +32,9 @@
     <nav class="tabs" id="tabs">
       <button data-tab="overview" class="active">Огляд</button>
       <button data-tab="tx">Операції</button>
+      <button data-tab="collections">Збори</button>
       <button data-tab="people">Учасники</button>
+      <button data-tab="reports">Звіти</button>
       <button data-tab="settings">Налаштування</button>
     </nav>
 
@@ -44,10 +46,16 @@
           <div class="stat"><span>Надійшло за місяць</span><b id="sIncome" class="pos">0 ₴</b></div>
           <div class="stat"><span>Витрачено за місяць</span><b id="sExpense" class="neg">0 ₴</b></div>
           <div class="stat"><span>Оплатили цього місяця</span><b id="sPaid">0 / 0</b></div>
+          <div class="stat"><span>З останнього звіту</span><b id="sSince" class="small-b">—</b></div>
         </div>
         <div class="actions">
           <button class="btn primary" data-add="income">+ Внесок</button>
+          <button class="btn primary" data-group>+ Груповий внесок</button>
           <button class="btn danger" data-add="expense">− Витрата</button>
+        </div>
+        <div class="card" id="openCollectionsCard">
+          <h2>Відкриті збори</h2>
+          <div id="openCollections" class="list"></div>
         </div>
         <div class="grid2">
           <div class="card">
@@ -87,6 +95,7 @@
         <div class="summary" id="txSummary"></div>
         <div class="actions">
           <button class="btn primary" data-add="income">+ Внесок</button>
+          <button class="btn primary" data-group>+ Груповий внесок</button>
           <button class="btn danger" data-add="expense">− Витрата</button>
           <button class="btn ghost" id="exportTxCsv">Експорт CSV</button>
         </div>
@@ -110,12 +119,43 @@
         <div id="peopleList" class="list"></div>
       </section>
 
+      <!-- Збори -->
+      <section data-view="collections" class="hidden">
+        <div class="card muted small-text">
+          Збір — документ «внесок з ЗП / премії від такої-то дати» зі списком учасників, які мають внести.
+          Внески прив'язуються до збору, тож видно, хто ще не вніс. Погашення боргу за минулий збір
+          потрапляє у звіт за датою внеску, але закриває борг саме того збору.
+        </div>
+        <div class="filters card">
+          <select id="cFilter">
+            <option value="open">Відкриті</option>
+            <option value="debt">З боржниками</option>
+            <option value="closed">Закриті</option>
+            <option value="all">Усі</option>
+          </select>
+          <button class="btn primary" id="addCollection">+ Новий збір</button>
+          <button class="btn ghost" data-group>+ Груповий внесок</button>
+        </div>
+        <div id="collectionsList" class="list"></div>
+      </section>
+
+      <!-- Звіти -->
+      <section data-view="reports" class="hidden">
+        <div class="card muted small-text">
+          Звіт фіксує всі операції, які ще не входили в попередні звіти (до вказаної дати включно).
+          Після цього ці операції блокуються від змін. Щоб щось виправити — видаліть останній звіт, виправте й створіть знову.
+        </div>
+        <div class="card" id="pendingReport"></div>
+        <div id="reportsList" class="list"></div>
+      </section>
+
       <!-- Налаштування -->
       <section data-view="settings" class="hidden">
         <form id="settingsForm" class="card form">
           <h2>Загальні</h2>
           <label>Назва каси<input name="title" maxlength="80"></label>
           <label>Щомісячний внесок, ₴ <small class="muted">(0 — не відстежувати)</small><input name="monthlyFee" type="number" min="0" step="0.01"></label>
+          <label>Початковий залишок каси, ₴ <small class="muted">(гроші, що були до початку обліку; змінюється лише до першого звіту)</small><input name="openingBalance" type="number" step="0.01"></label>
           <label>Категорії витрат <small class="muted">(кожна з нового рядка)</small><textarea name="categories" rows="6"></textarea></label>
           <button class="btn primary" type="submit">Зберегти</button>
         </form>

@@ -53,7 +53,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand); out
 main { max-width: 1100px; margin: 0 auto; padding: 16px; }
 main section { display: grid; gap: 14px; }
 
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.stat b.small-b { font-size: 15px; font-weight: 600; }
+.small-text { font-size: 13px; }
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); display: grid; gap: 4px; }
 .stat span { color: var(--muted); font-size: 13px; }
 .stat b { font-size: 22px; font-variant-numeric: tabular-nums; }
@@ -68,6 +70,7 @@ main section { display: grid; gap: 14px; }
 
 .filters { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 8px; padding: 12px; }
 section[data-view="people"] .filters { grid-template-columns: 2fr 1.2fr auto auto; }
+section[data-view="collections"] .filters { grid-template-columns: 1fr auto auto; }
 .summary { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
 .summary b { color: var(--text); font-variant-numeric: tabular-nums; }
 
@@ -108,6 +111,7 @@ dialog::backdrop { background: rgba(10, 15, 20, .45); }
 .form label { display: grid; gap: 5px; font-size: 13px; color: var(--muted); font-weight: 600; }
 .form .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 3px; }
+.seg.three { grid-template-columns: 1fr 1fr 1fr; }
 .seg input { display: none; }
 .seg span { display: block; text-align: center; padding: 7px; border-radius: 6px; cursor: pointer; font-weight: 600; color: var(--muted); }
 .seg input:checked + span { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
@@ -119,11 +123,34 @@ dialog::backdrop { background: rgba(10, 15, 20, .45); }
 .person-tx { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
 .person-tx .row { cursor: default; padding: 8px 12px; }
 
+/* Збори, групове введення, звіти */
+dialog.wide { width: min(720px, calc(100vw - 32px)); }
+.progress { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; grid-column: 1 / -1; }
+.progress > div { height: 100%; background: var(--pos); }
+.plist { max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.prow { display: grid; grid-template-columns: 1fr 120px; gap: 8px; align-items: center; padding: 6px 10px; border-top: 1px solid var(--line); font-size: 14px; }
+.prow:first-child { border-top: 0; }
+.prow .nm { overflow: hidden; text-overflow: ellipsis; }
+.prow .nm small { display: block; color: var(--muted); font-size: 12px; }
+.prow input { padding: 6px 8px; text-align: right; }
+.prow.pick { grid-template-columns: auto 1fr; cursor: pointer; }
+.prow.pick input { width: auto; }
+.prow.paid .nm { color: var(--muted); }
+.gtotal { display: flex; justify-content: space-between; font-weight: 700; font-size: 15px; }
+.tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.status-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 14px; }
+.status-row:first-child { border-top: 0; }
+.status-row .s { color: var(--muted); font-size: 12px; grid-column: 1 / -1; }
+.report-text { white-space: pre-wrap; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; max-height: 50vh; overflow: auto; color: var(--text); }
+.row.locked .t::after { content: " 🔒"; font-size: 11px; }
+
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(30px); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; opacity: 0; transition: .25s; pointer-events: none; z-index: 10; max-width: calc(100vw - 32px); }
 .toast.show { opacity: 1; transform: translateX(-50%); }
 
 @media (max-width: 800px) {
   .stats { grid-template-columns: 1fr 1fr; }
+  section[data-view="collections"] .filters { grid-template-columns: 1fr 1fr; }
+  section[data-view="collections"] .filters select { grid-column: 1 / -1; }
   .stat.big { grid-column: 1 / -1; }
   .grid2 { grid-template-columns: 1fr; }
   .filters { grid-template-columns: 1fr 1fr; }
