@@ -819,6 +819,27 @@ $("#restoreFile").addEventListener("change", async (e) => {
   } catch (err) { toast(err.message); }
 });
 
+$("#serverBackupsBtn").addEventListener("click", async () => {
+  const box = $("#serverBackups");
+  box.classList.remove("hidden"); box.innerHTML = `<div class="empty">Завантаження…</div>`;
+  try {
+    const items = await api("backups");
+    box.innerHTML = items.length
+      ? items.map((b) => `<div class="row" data-backup="${esc(b.key)}">
+          <div class="t">Стан перед відновленням ${new Date(b.at).toLocaleString("uk-UA")}</div>
+          <div class="a"><button class="btn ghost small" type="button">Повернути</button></div>
+          <div class="s">учасників ${b.people} · операцій ${b.tx} · звітів ${b.reports}</div><div></div>
+        </div>`).join("")
+      : `<div class="empty">Копій ще немає — вони з'являються після кожного відновлення з файлу</div>`;
+  } catch (err) { box.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+});
+$("#serverBackups").addEventListener("click", async (e) => {
+  const row = e.target.closest("[data-backup]"); if (!row || !e.target.closest("button")) return;
+  if (!confirm("Повернути дані до цього стану? Поточні дані теж буде збережено як копію.")) return;
+  try { db = await api("backups/" + encodeURIComponent(row.dataset.backup), "POST", {}); render(); toast("Дані повернуто"); $("#serverBackupsBtn").click(); }
+  catch (err) { toast(err.message); }
+});
+
 // ===== Старт =====
 showTab(localGet("kasa-tab") || "overview");
 if (pass) start().catch(() => logout()); else logout();

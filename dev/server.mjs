@@ -6,9 +6,14 @@ import { handle } from "../netlify/lib/core.mjs";
 
 const root = path.resolve("public");
 const dataFile = path.resolve("dev/data.json");
+const mem = new Map(); // інші ключі (серверні копії) у dev тримаємо в пам'яті
 const store = {
-  async get() { try { return JSON.parse(await fs.readFile(dataFile, "utf8")); } catch { return null; } },
-  async setJSON(key, v) { if (key === "db") await fs.writeFile(dataFile, JSON.stringify(v)); },
+  async get(key) {
+    if (key !== "db") return mem.has(key) ? JSON.parse(mem.get(key)) : null;
+    try { return JSON.parse(await fs.readFile(dataFile, "utf8")); } catch { return null; }
+  },
+  async setJSON(key, v) { if (key === "db") await fs.writeFile(dataFile, JSON.stringify(v)); else mem.set(key, JSON.stringify(v)); },
+  async list({ prefix = "" } = {}) { return { blobs: [...mem.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })) }; },
 };
 const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
 

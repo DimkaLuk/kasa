@@ -65,6 +65,7 @@ function cleanCollection(b, db) {
   return { title, kind, date, amount: Math.max(0, num(b.amount) || 0), personIds, comment: str(b.comment, 300), closed: b.closed === true };
 }
 
+const BACKUP = "backup-before-import-";
 const txLocked = (t) => t && t.reportId;
 
 function makeReport(b, db) {
@@ -194,9 +195,25 @@ export async function handle(req, store, password) {
         openingBalance: num(body.openingBalance) || 0,
         categories: cats.length ? cats : ["Інше"],
       };
+    } else if (res === "backups" && m === "GET") {
+      // Копії, які сервер зберіг перед кожним відновленням/імпортом
+      const { blobs } = await store.list({ prefix: BACKUP });
+      const keys = blobs.map((b) => b.key).sort().reverse().slice(0, 20);
+      const items = await Promise.all(keys.map(async (key) => {
+        const d = (await store.get(key, { type: "json" })) || {};
+        return { key, at: new Date(+key.slice(BACKUP.length)).toISOString(), people: d.people?.length || 0, tx: d.tx?.length || 0, reports: d.reports?.length || 0 };
+      }));
+      return json(items);
+    } else if (res === "backups" && m === "POST" && id) {
+      if (!id.startsWith(BACKUP)) return json({ error: "Не знайдено" }, 404);
+      const data = await store.get(id, { type: "json" });
+      if (!data || !Array.isArray(data.tx)) return json({ error: "Копію не знайдено" }, 404);
+      await store.setJSON(BACKUP + Date.now(), db);
+      await store.setJSON("db", data);
+      return json(await load(store));
     } else if (res === "import" && m === "POST") {
       if (!Array.isArray(body.people) || !Array.isArray(body.tx)) throw new Error("Невірний формат резервної копії");
-      await store.setJSON("backup-before-import-" + Date.now(), db);
+      await store.setJSON(BACKUP + Date.now(), db);
       await store.setJSON("db", {
         people: body.people, tx: body.tx,
         collections: Array.isArray(body.collections) ? body.collections : [],
