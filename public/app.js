@@ -1,7 +1,8 @@
 // ===== Стан =====
-let db = { people: [], tx: [], collections: [], reports: [], settings: { title: "Каса", monthlyFee: 0, openingBalance: 0, categories: [] } };
+let db = { people: [], tx: [], collections: [], reports: [], wallets: [], settings: { title: "Каса", monthlyFee: 0, openingBalance: 0, categories: [] } };
 let pass = localGet("kasa-pass") || "";
 let txLimit = 100;
+let curWallet = localGet("kasa-wallet") || ""; // "" — основна каса
 let peopleLimit = 200;
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -20,6 +21,14 @@ const collById = (id) => db.collections.find((c) => c.id === id);
 const moneyT = (n) => money(n).replace(" ₴", " грн");
 const KIND = { salary: "ЗП", bonus: "Премія", other: "Інше" };
 const byName = (a, b) => a.name.localeCompare(b.name, "uk");
+// ----- Гаманці -----
+const W = (t) => t.walletId || "";
+const walletById = (id) => db.wallets.find((w) => w.id === id);
+const walletName = (id) => (id ? walletById(id)?.name || "гаманець" : db.settings.title || "Каса");
+const wtx = (id = curWallet) => db.tx.filter((t) => W(t) === id);
+const walletOpening = (id = curWallet) => (id ? walletById(id)?.openingBalance || 0 : db.settings.openingBalance || 0);
+const walletBalance = (id) => { const s = totals(wtx(id)); return walletOpening(id) + s.bal; };
+const isMain = () => !curWallet;
 
 function localGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function localSet(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
@@ -85,8 +94,8 @@ function totals(list) {
   for (const t of list) t.type === "income" ? (inc += t.amount) : (exp += t.amount);
   return { inc, exp, bal: inc - exp };
 }
-function sortedTx() {
-  return [...db.tx].sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || "").localeCompare(a.createdAt || ""));
+function sortedTx(list = wtx()) {
+  return [...list].sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || "").localeCompare(a.createdAt || ""));
 }
 function paidByPersonMonth(personId, month) {
   return db.tx.filter((t) => t.type === "income" && t.personId === personId && monthKey(t.date) === month).reduce((s, t) => s + t.amount, 0);
@@ -148,32 +157,33 @@ function collRow(c) {
 }
 
 // ----- Звіти -----
-const lastReport = () => db.reports[db.reports.length - 1];
-const unreported = (upTo) => db.tx.filter((t) => !t.reportId && (!upTo || t.date <= upTo));
+const wReports = (id = curWallet) => db.reports.filter((r) => (r.walletId || "") === id);
+const lastReport = (id = curWallet) => { const l = wReports(id); return l[l.length - 1]; };
+const unreported = (upTo) => wtx().filter((t) => !t.reportId && (!upTo || t.date <= upTo));
 function reportText(r, items) {
   const inc = items.filter((t) => t.type === "income");
   const exp = items.filter((t) => t.type === "expense").sort((a, b) => a.date.localeCompare(b.date));
   const lines = [];
-  lines.push(`${db.settings.title || "Каса"} — звіт №${r.number} від ${fmtDate(r.date)}`);
+  lines.push(`${walletName(r.walletId || "")} — звіт №${r.number} від ${fmtDate(r.date)}`);
   lines.push(r.prevDate ? `З моменту останнього звіту (${fmtDate(r.prevDate)}) на банці було ${moneyT(r.opening)}` : `На початок обліку на банці було ${moneyT(r.opening)}`);
   lines.push(`Прихід ${moneyT(r.income)}`);
   // Розбивка приходу за зборами; погашення боргів за минулі збори позначаємо окремо
   const groups = new Map();
   for (const t of inc) {
     const c = collById(t.collectionId);
-    const key = c ? c.id : "";
-    if (!groups.has(key)) groups.set(key, { c, sum: 0, n: new Set() });
+    const key = c ? c.id : t.transferId ? "tr:" + (t.peerWallet || "") : "";
+    if (!groups.has(key)) groups.set(key, { c, sum: 0, n: new Set(), from: t.transferId ? walletName(t.peerWallet || "") : "" });
     const g = groups.get(key); g.sum += t.amount; g.n.add(t.personId || t.id);
   }
   if (groups.size > 1 || (groups.size === 1 && !groups.has(""))) {
     lines.push("з них:");
     for (const g of [...groups.values()].sort((a, b) => (a.c?.date || "9").localeCompare(b.c?.date || "9"))) {
       const debt = g.c && r.prevDate && g.c.date <= r.prevDate ? " (погашення боргу)" : "";
-      lines.push(`• ${g.c ? g.c.title + debt : "інші надходження"} — ${moneyT(g.sum)} (${g.n.size} ${g.c ? "уч." : "оп."})`);
+      lines.push(`• ${g.c ? g.c.title + debt : g.from ? "надходження з: " + g.from : "інші надходження"} — ${moneyT(g.sum)} (${g.n.size} ${g.c ? "уч." : "оп."})`);
     }
   }
   lines.push(`Витрати ${moneyT(r.expense)}${exp.length ? ", з них:" : ""}`);
-  for (const t of exp) lines.push(`• ${moneyT(t.amount)} — ${[t.category, t.comment].filter(Boolean).join(": ")}`);
+  for (const t of exp) lines.push(`• ${moneyT(t.amount)} — ${[t.transferId ? "Переказ у " + walletName(t.peerWallet || "") : t.category, t.comment].filter(Boolean).join(": ")}`);
   lines.push(`Залишок станом на ${fmtDate(r.date)}: ${moneyT(r.closing)}`);
   if (r.comment) lines.push("", r.comment);
   return lines.join("\n");
@@ -184,8 +194,8 @@ function draftReport(date) {
   const r2 = (n) => Math.round(n * 100) / 100;
   const income = r2(items.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0));
   const expense = r2(items.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0));
-  const opening = prev ? prev.closing : db.settings.openingBalance || 0;
-  return { r: { number: (prev?.number || 0) + 1, date, prevDate: prev?.date || "", opening, income, expense, closing: r2(opening + income - expense) }, items };
+  const opening = prev ? prev.closing : walletOpening();
+  return { r: { walletId: curWallet, number: (prev?.number || 0) + 1, date, prevDate: prev?.date || "", opening, income, expense, closing: r2(opening + income - expense) }, items };
 }
 
 function isPaid(st) {
@@ -195,14 +205,17 @@ function isPaid(st) {
 
 // ===== Рендер =====
 function render() {
-  document.title = db.settings.title || "Каса";
+  if (curWallet && !walletById(curWallet)) curWallet = "";
+  document.title = walletName(curWallet);
   $("#appTitle").textContent = db.settings.title || "Каса";
-  renderOverview(); renderTx(); renderCollections(); renderPeople(); renderReports(); renderSettings();
+  renderWalletSel();
+  renderOverview(); renderTx(); renderCollections(); renderPeople(); renderReports(); renderSettings(); renderWallets();
 }
 
 function txRow(t) {
   const p = personById(t.personId);
-  const title = t.type === "income" ? (p ? p.name : "Надходження") : t.category;
+  const title = t.transferId ? (t.type === "income" ? "← з: " : "→ у: ") + walletName(t.peerWallet || "")
+    : t.type === "income" ? (p ? p.name : "Надходження") : t.category;
   const c = collById(t.collectionId);
   const sub = [fmtDate(t.date), c ? c.title : "", t.method === "card" ? "картка" : "готівка", t.comment].filter(Boolean).join(" · ");
   const sign = t.type === "income" ? "+" : "−";
@@ -214,10 +227,18 @@ function txRow(t) {
 }
 
 function renderOverview() {
-  const all = totals(db.tx);
-  all.bal += db.settings.openingBalance || 0;
+  const list = wtx();
+  const all = totals(list);
+  all.bal += walletOpening();
   const m = curMonth();
-  const mt = totals(db.tx.filter((t) => monthKey(t.date) === m));
+  const mt = totals(list.filter((t) => monthKey(t.date) === m));
+  $("#sBalanceLbl").textContent = isMain() ? "Баланс каси" : "Баланс: " + walletName(curWallet);
+  $$(".main-only").forEach((el) => el.classList.toggle("hidden", !isMain()));
+  const ws = db.wallets.filter((w) => w.active || walletBalance(w.id));
+  $("#walletsCard").classList.toggle("hidden", !isMain() || !ws.length);
+  $("#walletsList").innerHTML = ws.map((w) => { const u = totals(wtx(w.id).filter((t) => !t.reportId));
+    return `<div class="row" data-wallet="${w.id}"><div class="t">${esc(w.name)}</div><div class="a">${money(walletBalance(w.id))}</div>
+      <div class="s">з останнього звіту: +${money(u.inc)} / −${money(u.exp)}${w.note ? " · " + esc(w.note) : ""}</div><div class="r2"><button class="btn ghost small" type="button" data-transfer-to="${w.id}">Поповнити</button></div></div>`; }).join("");
   $("#sBalance").textContent = money(all.bal);
   $("#sIncome").textContent = money(mt.inc);
   $("#sExpense").textContent = money(mt.exp);
@@ -227,14 +248,15 @@ function renderOverview() {
   const since = totals(unreported());
   $("#sSince").innerHTML = `<span class="pos">+${money(since.inc)}</span> <span class="neg">−${money(since.exp)}</span>`;
   const open = sortedCollections().filter((c) => !c.closed);
-  $("#openCollectionsCard").classList.toggle("hidden", !open.length);
+  $("#openCollectionsCard").classList.toggle("hidden", !open.length || !isMain());
+  $$("[data-add=income]").forEach((b) => (b.textContent = isMain() ? "+ Внесок" : "+ Надходження"));
   $("#openCollections").innerHTML = open.slice(0, 6).map(collRow).join("");
 
   // Місяці (останні 6)
   const months = [];
   const d = new Date(); d.setDate(1);
   for (let i = 0; i < 6; i++) { months.unshift(d.toLocaleDateString("sv-SE").slice(0, 7)); d.setMonth(d.getMonth() - 1); }
-  const byM = months.map((k) => ({ k, ...totals(db.tx.filter((t) => monthKey(t.date) === k)) }));
+  const byM = months.map((k) => ({ k, ...totals(list.filter((t) => monthKey(t.date) === k)) }));
   const max = Math.max(1, ...byM.map((x) => Math.max(x.inc, x.exp)));
   $("#monthChart").innerHTML =
     `<div class="legend"><span><i style="background:var(--pos)"></i>надходження</span><span><i style="background:var(--neg)"></i>витрати</span></div>` +
@@ -245,7 +267,7 @@ function renderOverview() {
 
   // Категорії
   const cats = {};
-  for (const t of db.tx) if (t.type === "expense" && monthKey(t.date) === m) cats[t.category] = (cats[t.category] || 0) + t.amount;
+  for (const t of list) if (t.type === "expense" && monthKey(t.date) === m) { const k = t.transferId ? "Переказ у " + walletName(t.peerWallet || "") : t.category; cats[k] = (cats[k] || 0) + t.amount; }
   const cl = Object.entries(cats).sort((a, b) => b[1] - a[1]);
   const cmax = cl.length ? cl[0][1] : 1;
   $("#catList").innerHTML = cl.length
@@ -397,11 +419,13 @@ function collOptions(personId, selected) {
   return `<option value="">— без збору —</option>` + list.map((c) => `<option value="${c.id}" ${c.id === selected ? "selected" : ""}>${esc(c.title)}</option>`).join("");
 }
 function txModal(t, presetType, presetPerson, presetColl) {
+  if (t?.transferId) return transferModal(t);
   const type = t?.type || presetType || "income";
+  const inMain = t ? !W(t) : isMain();
   const locked = !!t?.reportId;
   const cats = db.settings.categories.includes(t?.category) || !t?.category ? db.settings.categories : [...db.settings.categories, t.category];
   openModal({
-    title: t ? "Редагувати операцію" : type === "income" ? "Новий внесок" : "Нова витрата",
+    title: t ? "Редагувати операцію" : type === "income" ? (inMain ? "Новий внесок" : "Нове надходження") : "Нова витрата",
     body: `
       <div class="seg">
         <label><input type="radio" name="type" value="income" ${type === "income" ? "checked" : ""}><span>Надходження</span></label>
@@ -411,13 +435,15 @@ function txModal(t, presetType, presetPerson, presetColl) {
         <label>Сума, ₴<input name="amount" type="number" inputmode="decimal" step="0.01" min="0.01" required value="${t?.amount ?? (type === "income" && db.settings.monthlyFee ? db.settings.monthlyFee : "")}"></label>
         <label>Дата<input name="date" type="date" required value="${t?.date || today()}"></label>
       </div>
-      <label class="f-income">Від кого<select name="personId">${personOptions(t?.personId || presetPerson)}</select></label>
-      <label class="f-income">За збір <small class="muted">(для погашення боргу виберіть минулий збір)</small><select name="collectionId"></select></label>
+      ${inMain ? "" : `<p class="muted small-text">Гаманець: <b>${esc(walletName(t ? W(t) : curWallet))}</b>. Поповнення з каси робіть через «Переказ».</p>`}
+      <label class="f-income main-field">Від кого<select name="personId">${personOptions(t?.personId || presetPerson)}</select></label>
+      <label class="f-income main-field">За збір <small class="muted">(для погашення боргу виберіть минулий збір)</small><select name="collectionId"></select></label>
       <label class="f-expense">Категорія<select name="category">${cats.map((c) => `<option ${c === t?.category ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
       <label>Спосіб<select name="method"><option value="cash">Готівка</option><option value="card" ${t?.method === "card" ? "selected" : ""}>Картка / переказ</option></select></label>
       <label>Коментар<input name="comment" maxlength="300" value="${esc(t?.comment || "")}"></label>`,
     onSubmit: locked ? null : async (fd) => {
       const body = Object.fromEntries(fd);
+      if (!t) body.walletId = curWallet;
       await save(t ? "tx/" + t.id : "tx", t ? "PUT" : "POST", body);
       toast(t ? "Змінено" : "Додано");
     },
@@ -440,9 +466,9 @@ function txModal(t, presetType, presetPerson, presetColl) {
   pSel.addEventListener("change", () => fillColl(cSel.value));
   const sync = () => {
     const v = $("#modalBody input[name=type]:checked").value;
-    $$("#modalBody .f-income").forEach((el) => el.classList.toggle("hidden", v !== "income"));
+    $$("#modalBody .f-income").forEach((el) => el.classList.toggle("hidden", v !== "income" || (!inMain && el.classList.contains("main-field"))));
     $$("#modalBody .f-expense").forEach((el) => el.classList.toggle("hidden", v !== "expense"));
-    if (!t) $("#modalTitle").textContent = v === "income" ? "Новий внесок" : "Нова витрата";
+    if (!t) $("#modalTitle").textContent = v === "income" ? (inMain ? "Новий внесок" : "Нове надходження") : "Нова витрата";
   };
   $$("#modalBody input[name=type]").forEach((r) => r.addEventListener("change", sync));
   sync();
@@ -450,6 +476,10 @@ function txModal(t, presetType, presetPerson, presetColl) {
 document.addEventListener("click", (e) => {
   const add = e.target.closest("[data-add]"); if (add) return txModal(null, add.dataset.add);
   if (e.target.closest("[data-group]")) return groupModal();
+  const tr = e.target.closest("[data-transfer], [data-transfer-to]");
+  if (tr) return transferModal(null, tr.dataset.transferTo);
+  const wrow = e.target.closest("[data-wallet]");
+  if (wrow && !wrow.closest("dialog")) return switchWallet(wrow.dataset.wallet);
   const coll = e.target.closest("[data-coll]");
   if (coll && !coll.closest("dialog")) return collectionModal(collById(coll.dataset.coll));
   const rep = e.target.closest("[data-report]");
@@ -462,7 +492,7 @@ document.addEventListener("click", (e) => {
 function personModal(p) {
   let history = "";
   if (p) {
-    const txs = sortedTx().filter((t) => t.personId === p.id);
+    const txs = sortedTx(db.tx).filter((t) => t.personId === p.id);
     const y = new Date().getFullYear();
     const grid = Array.from({ length: 12 }, (_, i) => {
       const k = `${y}-${String(i + 1).padStart(2, "0")}`;
@@ -734,11 +764,11 @@ function renderReports() {
   const d = draftReport(today());
   const all = unreported();
   const later = all.length - d.items.length;
-  $("#pendingReport").innerHTML = `<h2>Ще не у звітах</h2>
+  $("#pendingReport").innerHTML = `<h2>Ще не у звітах${isMain() ? "" : ": " + esc(walletName(curWallet))}</h2>
     <div class="summary"><span>Операцій: <b>${all.length}</b></span><span>Було: <b>${money(d.r.opening)}</b></span><span>Прихід: <b class="pos">${money(d.r.income)}</b></span><span>Витрати: <b class="neg">${money(d.r.expense)}</b></span><span>Залишок: <b>${money(d.r.closing)}</b></span>${later ? `<span>+ ${later} з майбутньою датою</span>` : ""}</div>
     <div class="actions" style="margin-top:12px"><button class="btn primary" id="newReport" ${all.length ? "" : "disabled"}>Сформувати звіт</button></div>`;
   $("#newReport").addEventListener("click", newReportModal);
-  const list = [...db.reports].reverse();
+  const list = [...wReports()].reverse();
   $("#reportsList").innerHTML = list.length
     ? list.map((r) => `<div class="row" data-report="${r.id}">
         <div class="t">Звіт №${r.number} від ${fmtDate(r.date)}</div>
@@ -762,7 +792,7 @@ function newReportModal() {
       <div class="report-text" id="nrPreview"></div>
       <p class="muted small-text">Після фіксації операції звіту блокуються від змін, а наступний звіт почнеться з цього залишку.</p>`,
     onSubmit: async (fd) => {
-      await save("reports", "POST", { date: fd.get("date"), comment: fd.get("comment") });
+      await save("reports", "POST", { walletId: curWallet, date: fd.get("date"), comment: fd.get("comment") });
       toast("Звіт створено");
       return () => reportModal(lastReport());
     },
@@ -778,7 +808,7 @@ function newReportModal() {
 function reportModal(r) {
   if (!r) return;
   const text = reportText(r, db.tx.filter((t) => t.reportId === r.id));
-  const isLast = lastReport()?.id === r.id;
+  const isLast = lastReport(r.walletId || "")?.id === r.id;
   openModal({
     title: `Звіт №${r.number} від ${fmtDate(r.date)}`,
     wide: true,
@@ -792,6 +822,87 @@ function reportModal(r) {
   });
 }
 
+// ===== Гаманці підрозділів =====
+function renderWalletSel() {
+  const sel = $("#walletSel");
+  const list = db.wallets.filter((w) => w.active || w.id === curWallet);
+  sel.classList.toggle("hidden", !db.wallets.length);
+  sel.innerHTML = `<option value="">${esc(db.settings.title || "Каса")} (основна)</option>` + list.map((w) => `<option value="${w.id}" ${w.id === curWallet ? "selected" : ""}>${esc(w.name)}</option>`).join("");
+  sel.value = curWallet;
+  document.body.classList.toggle("in-wallet", !isMain());
+  $$("#tabs .main-only").forEach((b) => b.classList.toggle("hidden", !isMain()));
+  const active = $("#tabs button.active");
+  if (active?.classList.contains("hidden")) showTab("overview");
+}
+function switchWallet(id) {
+  curWallet = id || ""; localSet("kasa-wallet", curWallet || null);
+  txLimit = 100; render(); window.scrollTo(0, 0);
+  toast("Гаманець: " + walletName(curWallet));
+}
+$("#walletSel").addEventListener("change", (e) => switchWallet(e.target.value));
+
+function walletOptions(selected, exclude) {
+  const list = [{ id: "", name: (db.settings.title || "Каса") + " (основна)" }, ...db.wallets.filter((w) => w.active || w.id === selected)];
+  return list.filter((w) => w.id !== exclude).map((w) => `<option value="${w.id}" ${w.id === selected ? "selected" : ""}>${esc(w.name)}</option>`).join("");
+}
+function transferModal(t, presetTo) {
+  // t — будь-яка сторона переказу; шукаємо обидві
+  const pair = t ? db.tx.filter((x) => x.transferId === t.transferId) : [];
+  const out = pair.find((x) => x.type === "expense"), inc = pair.find((x) => x.type === "income");
+  const from = out ? W(out) : presetTo ? "" : curWallet;
+  const to = inc ? W(inc) : presetTo ?? (curWallet ? "" : db.wallets.find((w) => w.active)?.id || "");
+  const locked = pair.some((x) => x.reportId);
+  if (!db.wallets.length) return toast("Спочатку додайте гаманець у Налаштуваннях");
+  openModal({
+    title: t ? "Переказ між гаманцями" : "Новий переказ",
+    body: `
+      <div class="two">
+        <label>Звідки<select name="from">${walletOptions(from)}</select></label>
+        <label>Куди<select name="to">${walletOptions(to)}</select></label>
+      </div>
+      <div class="two">
+        <label>Сума, ₴<input name="amount" type="number" inputmode="decimal" step="0.01" min="0.01" required value="${out?.amount ?? ""}"></label>
+        <label>Дата<input name="date" type="date" required value="${out?.date || today()}"></label>
+      </div>
+      <label>Коментар<input name="comment" maxlength="300" value="${esc(out?.comment || "")}" placeholder="поповнення банки"></label>
+      <p class="muted small-text">Переказ записується у двох гаманцях одразу: у першому як витрата, у другому як надходження. Кожна сторона потрапляє у звіт свого гаманця.</p>
+      ${locked ? `<p class="muted small-text">Переказ уже увійшов у звіт і заблокований.</p>` : ""}`,
+    onSubmit: locked ? null : async (fd) => {
+      const body = Object.fromEntries(fd);
+      await save(t ? "transfer/" + t.transferId : "transfer", t ? "PUT" : "POST", body);
+      toast(t ? "Переказ змінено" : "Переказ проведено");
+    },
+    onDelete: t && !locked ? async () => { await save("transfer/" + t.transferId, "DELETE"); toast("Переказ видалено"); } : null,
+  });
+  if (locked) $$("#modalBody input, #modalBody select").forEach((el) => (el.disabled = true));
+}
+
+function renderWallets() {
+  $("#walletsSettings").innerHTML = db.wallets.length
+    ? db.wallets.map((w) => `<div class="row" data-wallet-edit="${w.id}"><div class="t">${esc(w.name)}${w.active ? "" : `<span class="badge">неактивний</span>`}</div>
+        <div class="a">${money(walletBalance(w.id))}</div><div class="s">${esc(w.note || "")} · звітів: ${wReports(w.id).length}</div><div></div></div>`).join("")
+    : `<div class="empty">Гаманців ще немає</div>`;
+}
+$("#walletsSettings").addEventListener("click", (e) => { const r = e.target.closest("[data-wallet-edit]"); if (r) walletModal(walletById(r.dataset.walletEdit)); });
+$("#addWallet").addEventListener("click", () => walletModal(null));
+function walletModal(w) {
+  const hasReports = w && wReports(w.id).length > 0;
+  openModal({
+    title: w ? "Гаманець" : "Новий гаманець",
+    body: `
+      <label>Назва<input name="name" required maxlength="80" value="${esc(w?.name || "")}" placeholder="Банка Стрікс"></label>
+      <label>Примітка<input name="note" maxlength="300" value="${esc(w?.note || "")}" placeholder="майстерня НРК"></label>
+      <label>Початковий залишок, ₴ <small class="muted">(змінюється лише до першого звіту гаманця)</small><input name="openingBalance" type="number" step="0.01" value="${w?.openingBalance || 0}" ${hasReports ? "disabled" : ""}></label>
+      <label class="check"><input type="checkbox" name="active" ${!w || w.active ? "checked" : ""}> Активний</label>`,
+    onSubmit: async (fd) => {
+      const body = { name: fd.get("name"), note: fd.get("note"), openingBalance: hasReports ? w.openingBalance : fd.get("openingBalance"), active: fd.get("active") === "on" };
+      await save(w ? "wallets/" + w.id : "wallets", w ? "PUT" : "POST", body);
+      toast(w ? "Збережено" : "Гаманець додано");
+    },
+    onDelete: w ? async () => { await save("wallets/" + w.id, "DELETE"); toast("Гаманець видалено"); } : null,
+  });
+}
+
 // ===== Експорт / копії =====
 function download(name, content, type) {
   const a = document.createElement("a");
@@ -801,12 +912,12 @@ function download(name, content, type) {
 }
 $("#exportTxCsv").addEventListener("click", () => {
   const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const rows = [["Дата", "Тип", "Сума", "Учасник", "Збір", "Категорія", "Спосіб", "Коментар", "Звіт"]].concat(
-    filteredTx().map((t) => [fmtDate(t.date), t.type === "income" ? "Надходження" : "Витрата", String(t.type === "income" ? t.amount : -t.amount).replace(".", ","),
+  const rows = [["Гаманець", "Дата", "Тип", "Сума", "Учасник", "Збір", "Категорія", "Спосіб", "Коментар", "Звіт"]].concat(
+    filteredTx().map((t) => [walletName(W(t)), fmtDate(t.date), t.type === "income" ? "Надходження" : "Витрата", String(t.type === "income" ? t.amount : -t.amount).replace(".", ","),
       personById(t.personId)?.name || "", collById(t.collectionId)?.title || "", t.category, t.method === "card" ? "Картка" : "Готівка", t.comment,
       db.reports.find((r) => r.id === t.reportId)?.number || ""])
   );
-  download(`operacii-${today()}.csv`, "﻿" + rows.map((r) => r.map(q).join(";")).join("\n"), "text/csv");
+  download(`operacii${curWallet ? "-" + walletName(curWallet).replace(/[^\p{L}\d]+/gu, "_") : ""}-${today()}.csv`, "﻿" + rows.map((r) => r.map(q).join(";")).join("\n"), "text/csv");
 });
 $("#backupBtn").addEventListener("click", () => download(`kasa-backup-${today()}.json`, JSON.stringify(db, null, 1), "application/json"));
 $("#restoreFile").addEventListener("change", async (e) => {
@@ -814,7 +925,7 @@ $("#restoreFile").addEventListener("change", async (e) => {
   if (!file) return;
   try {
     const data = JSON.parse(await file.text());
-    if (!confirm(`Відновити копію? Учасників: ${data.people?.length ?? 0}, операцій: ${data.tx?.length ?? 0}, зборів: ${data.collections?.length ?? 0}, звітів: ${data.reports?.length ?? 0}. Поточні дані буде замінено.`)) return;
+    if (!confirm(`Відновити копію? Учасників: ${data.people?.length ?? 0}, операцій: ${data.tx?.length ?? 0}, гаманців: ${data.wallets?.length ?? 0}, зборів: ${data.collections?.length ?? 0}, звітів: ${data.reports?.length ?? 0}. Поточні дані буде замінено.`)) return;
     db = await api("import", "POST", data); render(); toast("Дані відновлено");
   } catch (err) { toast(err.message); }
 });

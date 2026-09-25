@@ -25,15 +25,15 @@
   <!-- Додаток -->
   <div id="app" class="hidden">
     <header class="top">
-      <h1 id="appTitle">Каса</h1>
+      <div class="brand"><h1 id="appTitle">Каса</h1><select id="walletSel" class="wallet-sel hidden" title="Гаманець"></select></div>
       <button id="logoutBtn" class="btn ghost small" title="Вийти">Вийти</button>
     </header>
 
     <nav class="tabs" id="tabs">
       <button data-tab="overview" class="active">Огляд</button>
       <button data-tab="tx">Операції</button>
-      <button data-tab="collections">Збори</button>
-      <button data-tab="people">Учасники</button>
+      <button data-tab="collections" class="main-only">Збори</button>
+      <button data-tab="people" class="main-only">Учасники</button>
       <button data-tab="reports">Звіти</button>
       <button data-tab="settings">Налаштування</button>
     </nav>
@@ -42,18 +42,23 @@
       <!-- Огляд -->
       <section data-view="overview">
         <div class="stats">
-          <div class="stat big"><span>Баланс каси</span><b id="sBalance">0 ₴</b></div>
+          <div class="stat big"><span id="sBalanceLbl">Баланс каси</span><b id="sBalance">0 ₴</b></div>
           <div class="stat"><span>Надійшло за місяць</span><b id="sIncome" class="pos">0 ₴</b></div>
           <div class="stat"><span>Витрачено за місяць</span><b id="sExpense" class="neg">0 ₴</b></div>
-          <div class="stat"><span>Оплатили цього місяця</span><b id="sPaid">0 / 0</b></div>
+          <div class="stat main-only"><span>Оплатили цього місяця</span><b id="sPaid">0 / 0</b></div>
           <div class="stat"><span>З останнього звіту</span><b id="sSince" class="small-b">—</b></div>
         </div>
         <div class="actions">
           <button class="btn primary" data-add="income">+ Внесок</button>
-          <button class="btn primary" data-group>+ Груповий внесок</button>
+          <button class="btn primary main-only" data-group>+ Груповий внесок</button>
           <button class="btn danger" data-add="expense">− Витрата</button>
+          <button class="btn ghost" data-transfer>⇄ Переказ</button>
         </div>
-        <div class="card" id="openCollectionsCard">
+        <div class="card" id="walletsCard">
+          <h2>Гаманці підрозділів</h2>
+          <div id="walletsList" class="list"></div>
+        </div>
+        <div class="card main-only" id="openCollectionsCard">
           <h2>Відкриті збори</h2>
           <div id="openCollections" class="list"></div>
         </div>
@@ -95,8 +100,10 @@
         <div class="summary" id="txSummary"></div>
         <div class="actions">
           <button class="btn primary" data-add="income">+ Внесок</button>
-          <button class="btn primary" data-group>+ Груповий внесок</button>
+          <button class="btn primary main-only" data-group>+ Груповий внесок</button>
           <button class="btn danger" data-add="expense">− Витрата</button>
+          <button class="btn ghost" data-transfer>⇄ Переказ</button>
+          <button class="btn ghost" data-transfer>⇄ Переказ</button>
           <button class="btn ghost" id="exportTxCsv">Експорт CSV</button>
         </div>
         <div id="txList" class="list"></div>
@@ -159,6 +166,12 @@
           <label>Категорії витрат <small class="muted">(кожна з нового рядка)</small><textarea name="categories" rows="6"></textarea></label>
           <button class="btn primary" type="submit">Зберегти</button>
         </form>
+        <div class="card form">
+          <h2>Гаманці підрозділів</h2>
+          <p class="muted">Окремі банки підрозділів (напр. майстерні). Каса поповнює їх переказом; кожен гаманець має свої операції та свій журнал звітів. Перемикач гаманця — біля назви вгорі.</p>
+          <div id="walletsSettings" class="list"></div>
+          <div class="actions"><button class="btn ghost" id="addWallet">+ Гаманець</button></div>
+        </div>
         <div class="card form">
           <h2>Резервна копія</h2>
           <p class="muted">Завантажте всі дані у файл або відновіть з файлу. Перед відновленням сервер автоматично зберігає поточну копію.</p>

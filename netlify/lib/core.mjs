@@ -5,6 +5,7 @@ const EMPTY = () => ({
   tx: [],
   collections: [],
   reports: [],
+  wallets: [],
   settings: { title: "Каса", monthlyFee: 0, openingBalance: 0, categories: ["Оренда", "Господарські", "Подарунки", "Транспорт", "Інше"] },
 });
 
@@ -17,6 +18,7 @@ async function load(store) {
   db.settings = { ...EMPTY().settings, ...(db.settings || {}) };
   db.collections ||= [];
   db.reports ||= [];
+  db.wallets ||= [];
   return db;
 }
 
@@ -30,12 +32,26 @@ function cleanPerson(b) {
   return { name, phone: str(b.phone, 40), note: str(b.note, 300), active: b.active !== false };
 }
 
-function cleanTx(b, db) {
+// walletId: "" — основна каса, інакше id гаманця підрозділу
+const W = (t) => t.walletId || "";
+function cleanWalletId(v, db) {
+  const id = str(v, 40);
+  if (id && !db.wallets.some((w) => w.id === id)) throw new Error("Гаманець не знайдено");
+  return id;
+}
+function cleanWallet(b) {
+  const name = str(b.name, 80);
+  if (!name) throw new Error("Вкажіть назву гаманця");
+  return { name, note: str(b.note, 300), openingBalance: num(b.openingBalance) || 0, active: b.active !== false };
+}
+
+function cleanTx(b, db, walletId = "") {
   const type = b.type === "expense" ? "expense" : "income";
   const amount = num(b.amount);
   if (!(amount > 0)) throw new Error("Сума має бути більше 0");
   const date = isDate(b.date) ? b.date : new Date().toISOString().slice(0, 10);
-  const personId = type === "income" && b.personId ? str(b.personId, 40) : "";
+  // Учасники й збори є лише в основній касі
+  const personId = type === "income" && !walletId && b.personId ? str(b.personId, 40) : "";
   if (personId && !db.people.some((p) => p.id === personId)) throw new Error("Учасника не знайдено");
   const collectionId = type === "income" && personId && b.collectionId ? str(b.collectionId, 40) : "";
   if (collectionId && !db.collections.some((c) => c.id === collectionId)) throw new Error("Збір не знайдено");
@@ -43,6 +59,7 @@ function cleanTx(b, db) {
     type,
     amount,
     date,
+    walletId,
     personId,
     collectionId,
     category: type === "expense" ? str(b.category, 60) || "Інше" : "",
@@ -68,17 +85,36 @@ function cleanCollection(b, db) {
 const BACKUP = "backup-before-import-";
 const txLocked = (t) => t && t.reportId;
 
+function cleanTransfer(b, db) {
+  const from = cleanWalletId(b.from, db), to = cleanWalletId(b.to, db);
+  if (from === to) throw new Error("Оберіть різні гаманці");
+  const amount = num(b.amount);
+  if (!(amount > 0)) throw new Error("Сума має бути більше 0");
+  const date = isDate(b.date) ? b.date : new Date().toISOString().slice(0, 10);
+  const common = { amount, date, personId: "", collectionId: "", method: b.method === "cash" ? "cash" : "card", comment: str(b.comment, 300) };
+  return [
+    { ...common, type: "expense", walletId: from, peerWallet: to, category: "Переказ" },
+    { ...common, type: "income", walletId: to, peerWallet: from, category: "" },
+  ];
+}
+
+const walletReports = (db, walletId) => db.reports.filter((r) => (r.walletId || "") === walletId);
+
 function makeReport(b, db) {
   const date = isDate(b.date) ? b.date : new Date().toISOString().slice(0, 10);
-  const prev = db.reports[db.reports.length - 1];
+  const walletId = cleanWalletId(b.walletId, db);
+  const wr = walletReports(db, walletId);
+  const prev = wr[wr.length - 1];
   if (prev && date < prev.date) throw new Error("Дата звіту не може бути раніше за попередній звіт");
-  const items = db.tx.filter((t) => !t.reportId && t.date <= date);
+  const items = db.tx.filter((t) => W(t) === walletId && !t.reportId && t.date <= date);
   if (!items.length) throw new Error("Немає нових операцій для звіту");
   const r2 = (n) => Math.round(n * 100) / 100;
   const income = r2(items.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0));
   const expense = r2(items.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0));
-  const opening = prev ? prev.closing : num(db.settings.openingBalance) || 0;
+  const wallet = db.wallets.find((w) => w.id === walletId);
+  const opening = prev ? prev.closing : num(wallet ? wallet.openingBalance : db.settings.openingBalance) || 0;
   return {
+    walletId,
     number: (prev?.number || 0) + 1,
     date,
     prevDate: prev?.date || "",
@@ -133,6 +169,8 @@ export async function handle(req, store, password) {
       } else return json({ error: "Метод не підтримується" }, 405);
     } else if (res === "tx") {
       const LOCKED = "Операція вже увійшла у звіт — її не можна змінити. Спочатку видаліть звіт.";
+      const cur = id && db.tx.find((t) => t.id === id);
+      if (cur?.transferId && m === "PUT") return json({ error: "Це переказ — змініть його через форму переказу" }, 409);
       if (m === "POST" && Array.isArray(body.bulk)) {
         // Груповий внесок: спільні дата/спосіб/збір, у кожного учасника своя сума
         const items = body.bulk.slice(0, 1000).filter((x) => num(x.amount) > 0);
@@ -144,15 +182,46 @@ export async function handle(req, store, password) {
         }));
         db.tx.push(...added);
       } else if (m === "POST") {
-        db.tx.push({ id: uid(), ...cleanTx(body, db), createdAt: now });
+        db.tx.push({ id: uid(), ...cleanTx(body, db, cleanWalletId(body.walletId, db)), createdAt: now });
       } else if (m === "PUT" && id) {
         const i = db.tx.findIndex((t) => t.id === id);
         if (i < 0) return json({ error: "Не знайдено" }, 404);
         if (txLocked(db.tx[i])) return json({ error: LOCKED }, 409);
-        db.tx[i] = { ...db.tx[i], ...cleanTx(body, db), updatedAt: now };
+        db.tx[i] = { ...db.tx[i], ...cleanTx(body, db, W(db.tx[i])), updatedAt: now };
       } else if (m === "DELETE" && id) {
-        if (txLocked(db.tx.find((t) => t.id === id))) return json({ error: LOCKED }, 409);
-        db.tx = db.tx.filter((t) => t.id !== id);
+        // Переказ видаляється разом з другою стороною
+        const group = cur?.transferId ? db.tx.filter((t) => t.transferId === cur.transferId) : [cur];
+        if (group.some(txLocked)) return json({ error: LOCKED }, 409);
+        const del = new Set(group.filter(Boolean).map((t) => t.id));
+        db.tx = db.tx.filter((t) => !del.has(t.id));
+      } else return json({ error: "Метод не підтримується" }, 405);
+    } else if (res === "transfer") {
+      const group = id ? db.tx.filter((t) => t.transferId === id) : [];
+      if (id && !group.length) return json({ error: "Не знайдено" }, 404);
+      if (group.some(txLocked)) return json({ error: "Переказ уже увійшов у звіт — спочатку видаліть звіт" }, 409);
+      if (m === "POST" && !id) {
+        const transferId = uid();
+        db.tx.push(...cleanTransfer(body, db).map((t) => ({ id: uid(), ...t, transferId, createdAt: now })));
+      } else if (m === "PUT" && id) {
+        const [out, inc] = cleanTransfer(body, db);
+        for (const t of group) Object.assign(t, t.type === "expense" ? out : inc, { updatedAt: now });
+      } else if (m === "DELETE" && id) {
+        db.tx = db.tx.filter((t) => t.transferId !== id);
+      } else return json({ error: "Метод не підтримується" }, 405);
+    } else if (res === "wallets") {
+      if (m === "POST") {
+        db.wallets.push({ id: uid(), ...cleanWallet(body), createdAt: now });
+      } else if (m === "PUT" && id) {
+        const w = db.wallets.find((x) => x.id === id);
+        if (!w) return json({ error: "Не знайдено" }, 404);
+        const next = cleanWallet(body);
+        if (walletReports(db, id).length && next.openingBalance !== (w.openingBalance || 0))
+          throw new Error("Початковий залишок гаманця не можна змінити після першого звіту");
+        Object.assign(w, next);
+      } else if (m === "DELETE" && id) {
+        if (db.tx.some((t) => W(t) === id || t.peerWallet === id))
+          return json({ error: "У гаманці є операції — зробіть його неактивним замість видалення" }, 409);
+        db.wallets = db.wallets.filter((w) => w.id !== id);
       } else return json({ error: "Метод не підтримується" }, 405);
     } else if (res === "collections") {
       if (m === "POST") {
@@ -178,10 +247,12 @@ export async function handle(req, store, password) {
         if (!r) return json({ error: "Не знайдено" }, 404);
         r.comment = str(body.comment, 500);
       } else if (m === "DELETE" && id) {
-        const last = db.reports[db.reports.length - 1];
-        if (!last || last.id !== id) return json({ error: "Видалити можна лише останній звіт" }, 409);
+        const r = db.reports.find((x) => x.id === id);
+        if (!r) return json({ error: "Не знайдено" }, 404);
+        const wr = walletReports(db, r.walletId || "");
+        if (wr[wr.length - 1].id !== id) return json({ error: "Видалити можна лише останній звіт" }, 409);
         db.tx.forEach((t) => { if (t.reportId === id) delete t.reportId; });
-        db.reports.pop();
+        db.reports = db.reports.filter((x) => x.id !== id);
       } else return json({ error: "Метод не підтримується" }, 405);
     } else if (res === "settings" && m === "PUT") {
       const cats = Array.isArray(body.categories)
@@ -218,6 +289,7 @@ export async function handle(req, store, password) {
         people: body.people, tx: body.tx,
         collections: Array.isArray(body.collections) ? body.collections : [],
         reports: Array.isArray(body.reports) ? body.reports : [],
+        wallets: Array.isArray(body.wallets) ? body.wallets : [],
         settings: { ...EMPTY().settings, ...body.settings },
       });
       return json(await load(store));

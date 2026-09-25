@@ -40,6 +40,7 @@ def amount(v):
 
 CATS = [
     ("Старлінк", r"старлінк|starlink|старлинк"),
+    ("Підписки та сервіси", r"інтернет"),
     ("Поповнення банок майстерень", r"поповнення|на майстерню бпла|майстерн\w* (бпла|нрк)|^майстерня"),
     ("Розрахунки з учасниками", r"^(борг |від \w+ до|\w+ від \w+$)|барні"),
     ("Оренда", r"оренд"),
@@ -134,24 +135,100 @@ for i, w in enumerate(waves):
         "closed": not is_recent, "createdAt": NOW,
     })
 
+# ---- Гаманці підрозділів (окремі аркуші-банки) ----
+WALLETS = [("Банка Стрікс", "майстерня НРК", r"нрк"), ("Банка Крістал", "майстерня БПЛА", r"бпла")]
+wallets, wtx_all = [], []
+for name, note, hint in WALLETS:
+    if name not in wb.sheetnames: continue
+    w = {"id": uid(), "name": name, "note": note, "openingBalance": 0, "active": True, "createdAt": NOW, "hint": hint}
+    wallets.append(w)
+    raw = [(r[0].row, [c.value for c in r]) for r in wb[name].iter_rows(min_row=3)]
+    raw = [(n, v) for n, v in raw if any(x not in (None, "", " ") for x in v[:4])]
+    first = next(v[0] for _, v in raw if isinstance(v[0], datetime.datetime))
+    w["lastDate"] = max(v[0] for _, v in raw if isinstance(v[0], datetime.datetime)).date().isoformat()
+    last_dt = first
+    for n, v in raw:
+        dt = v[0] if isinstance(v[0], datetime.datetime) else last_dt  # рядок без дати — дата попереднього
+        last_dt = dt
+        c = norm(v[3])
+        ts = iso(dt.replace(hour=12) + datetime.timedelta(seconds=n))
+        base = {"date": dt.date().isoformat(), "walletId": w["id"], "method": "card", "personId": "", "collectionId": "", "createdAt": ts}
+        inc_v, exp_v = v[1], v[2]
+        if isinstance(inc_v, (int, float)) and inc_v:
+            # якщо в рядку є і прихід, і витрата — коментар стосується витрати
+            tc = "" if isinstance(exp_v, (int, float)) and exp_v else c
+            if not isinstance(v[0], datetime.datetime): tc = (tc + " " if tc else "") + "(у таблиці без дати)"
+            wtx_all.append({**base, "id": uid(), "type": "income", "amount": amount(inc_v), "category": "", "comment": tc})
+        if isinstance(exp_v, (int, float)) and exp_v:
+            wtx_all.append({**base, "id": uid(), "type": "expense", "amount": amount(exp_v), "category": category(c), "comment": c})
+
+# Зіставлення: поповнення в касі ↔ надходження в банці → зв'язаний переказ
+d = lambda x: datetime.date.fromisoformat(x)
+main_top = [t for t in tx if t["type"] == "expense" and t["category"] == "Поповнення банок майстерень"]
+used, matched = set(), 0
+w_by_id = {w["id"]: w for w in wallets}
+for wi in sorted([t for t in wtx_all if t["type"] == "income"], key=lambda t: t["date"]):
+    refundish = wi["comment"] and "поповнен" not in wi["comment"].lower()  # повернення, компенсації
+    hint = w_by_id[wi["walletId"]]["hint"]
+    best = None
+    for m in main_top:
+        if m["id"] in used or m["amount"] != wi["amount"]: continue
+        gap = abs((d(m["date"]) - d(wi["date"])).days)
+        own = bool(re.search(hint, key(m["comment"])))
+        if gap > (20 if own else 10) or (refundish and not own): continue
+        other = any(re.search(x["hint"], key(m["comment"])) for x in wallets if x is not w_by_id[wi["walletId"]])
+        if other and not own: continue
+        score = (0 if own else 1, gap)
+        if not best or score < best[0]: best = (score, m)
+    if best:
+        m = best[1]; used.add(m["id"]); matched += 1
+        tid = uid()
+        m.update({"transferId": tid, "peerWallet": wi["walletId"], "category": "Переказ"})
+        wi.update({"transferId": tid, "peerWallet": "", "comment": m["comment"] or wi["comment"]})
+# Поповнення, записані в касі після останнього рядка таблиці банки, — теж перекази
+late = 0
+for m in main_top:
+    if m["id"] in used: continue
+    w = next((x for x in wallets if re.search(x["hint"], key(m["comment"]))), None)
+    if not w or m["date"] <= w["lastDate"]: continue
+    tid = uid(); used.add(m["id"]); late += 1
+    m.update({"transferId": tid, "peerWallet": w["id"], "category": "Переказ"})
+    wtx_all.append({"id": uid(), "type": "income", "amount": m["amount"], "date": m["date"], "walletId": w["id"], "method": "card",
+                    "personId": "", "collectionId": "", "category": "", "createdAt": m["createdAt"], "transferId": tid, "peerWallet": "",
+                    "comment": m["comment"] + " (немає в таблиці банки — з журналу каси)"})
+unmatched_main = [t for t in main_top if t["id"] not in used]
+unmatched_w = [t for t in wtx_all if t["type"] == "income" and not t.get("transferId")]
+w_names = {w["id"]: w["name"] for w in wallets}
+for w in wallets: w.pop("hint"); w.pop("lastDate")
+tx.extend(wtx_all)
+
 # ---- Звіт-відсічка ----
 reports = []
 if REPORT_DATE:
-    items = [t for t in tx if t["date"] <= REPORT_DATE]
+    items = [t for t in tx if t["date"] <= REPORT_DATE and not t.get("walletId")]
     inc = round(sum(t["amount"] for t in items if t["type"] == "income"), 2)
     exp = round(sum(t["amount"] for t in items if t["type"] == "expense"), 2)
-    r = {"id": uid(), "number": 1, "date": REPORT_DATE, "prevDate": "", "opening": 0, "income": inc, "expense": exp,
+    r = {"id": uid(), "walletId": "", "number": 1, "date": REPORT_DATE, "prevDate": "", "opening": 0, "income": inc, "expense": exp,
          "closing": round(inc - exp, 2), "txIds": [t["id"] for t in items], "comment": "Підсумок старої таблиці (імпорт)", "createdAt": NOW}
     for t in items: t["reportId"] = r["id"]
     reports.append(r)
 
 for t in tx: t.pop("srcRow", None)
 cats = [c for c, _ in CATS] + ["Інше"]
-db = {"people": people, "tx": tx, "collections": collections_out, "reports": reports,
+for t in tx: t.setdefault("walletId", "")
+db = {"people": people, "tx": tx, "collections": collections_out, "reports": reports, "wallets": wallets,
       "settings": {"title": "Каса", "monthlyFee": 0, "openingBalance": 0, "categories": cats}}
 json.dump(db, open(OUT, "w"), ensure_ascii=False)
 
 # ---- Підсумок ----
+for w in [{"id": "", "name": "Каса (основна)"}] + wallets:
+    lst = [t for t in tx if t["walletId"] == w["id"]]
+    i_, e_ = sum(t["amount"] for t in lst if t["type"] == "income"), sum(t["amount"] for t in lst if t["type"] == "expense")
+    print(f"{w['name']:<18} операцій {len(lst):>5}  прихід {i_:>12.2f}  витрати {e_:>12.2f}  залишок {i_-e_:>10.2f}")
+print(f"переказів зіставлено: {matched}, додано пізніших за таблицю банки: {late}")
+print("поповнення в касі без пари в банці:"); [print("   ", t["date"], t["amount"], t["comment"]) for t in unmatched_main]
+print("надходження в банках без пари в касі:"); [print("   ", w_names[t["walletId"]], t["date"], t["amount"], t["comment"]) for t in unmatched_w]
+tx = [t for t in tx if not t["walletId"]]
 inc = sum(t["amount"] for t in tx if t["type"] == "income"); exp = sum(t["amount"] for t in tx if t["type"] == "expense")
 print(f"учасників {len(people)} (активних {len(active)}, з журналу без довідника: {len(unknown)}: {', '.join(unknown)})")
 print(f"операцій {len(tx)}: прихід {inc:.2f} ({sum(t['type']=='income' for t in tx)}), витрати {exp:.2f} ({sum(t['type']=='expense' for t in tx)}), залишок {inc-exp:.2f}")
