@@ -376,6 +376,7 @@ $("#settingsForm").addEventListener("submit", async (e) => {
 
 // ===== Модальне вікно =====
 const modal = $("#modal");
+const KEEP_OPEN = Symbol("keep-open");
 let modalSubmit = null, modalDelete = null;
 function openModal({ title, body, okText = "Зберегти", onSubmit, onDelete, wide = false }) {
   modal.classList.toggle("wide", wide);
@@ -383,6 +384,7 @@ function openModal({ title, body, okText = "Зберегти", onSubmit, onDelet
   $("#modalBody").innerHTML = body;
   $("#modalErr").textContent = "";
   $("#modalOk").textContent = okText;
+  $("#modalCancel").textContent = "Скасувати";
   $("#modalOk").classList.toggle("hidden", !onSubmit);
   $("#modalDelete").classList.toggle("hidden", !onDelete);
   modalSubmit = onSubmit; modalDelete = onDelete;
@@ -395,7 +397,11 @@ $("#modalForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!modalSubmit) return modal.close();
   const btn = $("#modalOk"); btn.disabled = true;
-  try { const after = await modalSubmit(new FormData(e.target)); modal.close(); if (typeof after === "function") after(); }
+  try {
+    const after = await modalSubmit(new FormData(e.target));
+    if (after === KEEP_OPEN) { btn.disabled = false; return; } // форма лишається для наступного запису
+    modal.close(); if (typeof after === "function") after();
+  }
   catch (err) { $("#modalErr").textContent = err.message; }
   btn.disabled = false;
 });
@@ -423,6 +429,7 @@ function txModal(t, presetType, presetPerson, presetColl) {
   const type = t?.type || presetType || "income";
   const inMain = t ? !W(t) : isMain();
   const locked = !!t?.reportId;
+  const added = { n: 0, sum: 0 };
   // Нова витрата — за замовчуванням «Інше»; категорію, якої вже немає в налаштуваннях, зберігаємо у списку
   const selCat = t?.category || "Інше";
   const cats = db.settings.categories.includes(selCat) ? db.settings.categories : [...db.settings.categories, selCat];
@@ -441,12 +448,24 @@ function txModal(t, presetType, presetPerson, presetColl) {
       <label class="f-income main-field">Від кого<select name="personId">${personOptions(t?.personId || presetPerson)}</select></label>
       <label class="f-income main-field">За збір <small class="muted">(для погашення боргу виберіть минулий збір)</small><select name="collectionId"></select></label>
       <label class="f-expense">Категорія<select name="category">${cats.map((c) => `<option ${c === selCat ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
-      <label>Коментар<input name="comment" maxlength="300" value="${esc(t?.comment || "")}"></label>`,
+      <label>Коментар<input name="comment" maxlength="300" value="${esc(t?.comment || "")}"></label>
+      <p id="txAdded" class="added hidden"></p>`,
     onSubmit: locked ? null : async (fd) => {
       const body = Object.fromEntries(fd);
       if (!t) body.walletId = curWallet;
       await save(t ? "tx/" + t.id : "tx", t ? "PUT" : "POST", body);
       toast(t ? "Змінено" : "Додано");
+      if (!t && body.type === "expense") {
+        // Серія витрат: форма не закривається, очищаємо суму й коментар, дата й категорія лишаються
+        added.n++; added.sum += Number(body.amount) || 0;
+        $("#modalBody input[name=amount]").value = "";
+        $("#modalBody input[name=comment]").value = "";
+        $("#txAdded").textContent = `Додано витрат: ${added.n} на ${money(added.sum)}. Можна вносити наступну.`;
+        $("#txAdded").classList.remove("hidden");
+        $("#modalCancel").textContent = "Готово";
+        $("#modalBody input[name=amount]").focus();
+        return KEEP_OPEN;
+      }
     },
     onDelete: t && !locked ? async () => { await save("tx/" + t.id, "DELETE"); toast("Видалено"); } : null,
   });

@@ -123,6 +123,8 @@ dialog::backdrop { background: rgba(10, 15, 20, .45); }
 .person-tx { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
 .person-tx .row { cursor: default; padding: 8px 12px; }
 
+.added { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); }
+
 /* Гаманці */
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .wallet-sel { width: auto; max-width: 52vw; padding: 5px 8px; font-weight: 600; }
