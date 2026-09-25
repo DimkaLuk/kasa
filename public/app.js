@@ -423,7 +423,9 @@ function txModal(t, presetType, presetPerson, presetColl) {
   const type = t?.type || presetType || "income";
   const inMain = t ? !W(t) : isMain();
   const locked = !!t?.reportId;
-  const cats = db.settings.categories.includes(t?.category) || !t?.category ? db.settings.categories : [...db.settings.categories, t.category];
+  // Нова витрата — за замовчуванням «Інше»; категорію, якої вже немає в налаштуваннях, зберігаємо у списку
+  const selCat = t?.category || "Інше";
+  const cats = db.settings.categories.includes(selCat) ? db.settings.categories : [...db.settings.categories, selCat];
   openModal({
     title: t ? "Редагувати операцію" : type === "income" ? (inMain ? "Новий внесок" : "Нове надходження") : "Нова витрата",
     body: `
@@ -438,7 +440,7 @@ function txModal(t, presetType, presetPerson, presetColl) {
       ${inMain ? "" : `<p class="muted small-text">Гаманець: <b>${esc(walletName(t ? W(t) : curWallet))}</b>. Поповнення з каси робіть через «Переказ».</p>`}
       <label class="f-income main-field">Від кого<select name="personId">${personOptions(t?.personId || presetPerson)}</select></label>
       <label class="f-income main-field">За збір <small class="muted">(для погашення боргу виберіть минулий збір)</small><select name="collectionId"></select></label>
-      <label class="f-expense">Категорія<select name="category">${cats.map((c) => `<option ${c === t?.category ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
+      <label class="f-expense">Категорія<select name="category">${cats.map((c) => `<option ${c === selCat ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
       <label>Коментар<input name="comment" maxlength="300" value="${esc(t?.comment || "")}"></label>`,
     onSubmit: locked ? null : async (fd) => {
       const body = Object.fromEntries(fd);
