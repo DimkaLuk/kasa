@@ -217,7 +217,7 @@ function txRow(t) {
   const title = t.transferId ? (t.type === "income" ? "← з: " : "→ у: ") + walletName(t.peerWallet || "")
     : t.type === "income" ? (p ? p.name : "Надходження") : t.category;
   const c = collById(t.collectionId);
-  const sub = [fmtDate(t.date), c ? c.title : "", t.method === "card" ? "картка" : "готівка", t.comment].filter(Boolean).join(" · ");
+  const sub = [fmtDate(t.date), c ? c.title : "", t.comment].filter(Boolean).join(" · ");
   const sign = t.type === "income" ? "+" : "−";
   return `<div class="row${t.reportId ? " locked" : ""}" data-tx="${t.id}">
     <div class="t">${esc(title)}</div>
@@ -439,7 +439,6 @@ function txModal(t, presetType, presetPerson, presetColl) {
       <label class="f-income main-field">Від кого<select name="personId">${personOptions(t?.personId || presetPerson)}</select></label>
       <label class="f-income main-field">За збір <small class="muted">(для погашення боргу виберіть минулий збір)</small><select name="collectionId"></select></label>
       <label class="f-expense">Категорія<select name="category">${cats.map((c) => `<option ${c === t?.category ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
-      <label>Спосіб<select name="method"><option value="cash">Готівка</option><option value="card" ${t?.method === "card" ? "selected" : ""}>Картка / переказ</option></select></label>
       <label>Коментар<input name="comment" maxlength="300" value="${esc(t?.comment || "")}"></label>`,
     onSubmit: locked ? null : async (fd) => {
       const body = Object.fromEntries(fd);
@@ -505,7 +504,7 @@ function personModal(p) {
       ${debts.length ? `<label>Не внесено за зборами (${debts.length})</label><div class="person-tx">${debts.map(({ c, sum }) => `<div class="row"><div class="t">${esc(c.title)}</div><div class="a neg">${c.amount ? money(c.amount - sum) : "—"}</div><div class="s">${fmtDate(c.date)}${sum ? " · внесено " + money(sum) : ""}</div><div></div></div>`).join("")}</div>` : ""}
       <label>Оплати за ${y} рік</label><div class="months">${grid}</div>
       <label>Історія внесків (${txs.length}) · разом ${money(txs.reduce((s, t) => s + t.amount, 0))}</label>
-      <div class="person-tx">${txs.length ? txs.map((t) => `<div class="row"><div class="t">${fmtDate(t.date)}</div><div class="a pos">+${money(t.amount)}</div><div class="s">${esc(t.comment || (t.method === "card" ? "картка" : "готівка"))}</div><div></div></div>`).join("") : `<div class="empty">Внесків ще немає</div>`}</div>
+      <div class="person-tx">${txs.length ? txs.map((t) => `<div class="row"><div class="t">${fmtDate(t.date)}</div><div class="a pos">+${money(t.amount)}</div><div class="s">${esc(t.comment || collById(t.collectionId)?.title || "")}</div><div></div></div>`).join("") : `<div class="empty">Внесків ще немає</div>`}</div>
       <button type="button" class="btn primary" id="payForPerson">+ Внесок від ${esc(p.name)}</button>`;
   }
   openModal({
@@ -693,10 +692,7 @@ function groupModal(presetColl = "") {
     okText: "Провести внески",
     wide: true,
     body: `
-      <div class="two">
-        <label>Дата внеску<input name="date" type="date" required value="${today()}"></label>
-        <label>Спосіб<select name="method"><option value="cash">Готівка</option><option value="card">Картка / переказ</option></select></label>
-      </div>
+      <label>Дата внеску<input name="date" type="date" required value="${today()}"></label>
       <label>За збір <small class="muted">(минулий збір — погашення боргу; у звіт піде за датою внеску)</small><select name="collectionId" id="gColl">${collOptions("", presetColl)}</select></label>
       <label>Коментар до всіх внесків<input name="comment" maxlength="300"></label>
       <div class="two">
@@ -712,7 +708,7 @@ function groupModal(presetColl = "") {
     onSubmit: async (fd) => {
       const bulk = [...amounts].filter(([, v]) => Number(v) > 0).map(([personId, amount]) => ({ personId, amount }));
       if (!bulk.length) throw new Error("Вкажіть суму хоча б для одного учасника");
-      await save("tx", "POST", { bulk, date: fd.get("date"), method: fd.get("method"), collectionId: fd.get("collectionId"), comment: fd.get("comment") });
+      await save("tx", "POST", { bulk, date: fd.get("date"), collectionId: fd.get("collectionId"), comment: fd.get("comment") });
       toast(`Проведено внесків: ${bulk.length}`);
     },
   });
@@ -912,9 +908,9 @@ function download(name, content, type) {
 }
 $("#exportTxCsv").addEventListener("click", () => {
   const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const rows = [["Гаманець", "Дата", "Тип", "Сума", "Учасник", "Збір", "Категорія", "Спосіб", "Коментар", "Звіт"]].concat(
+  const rows = [["Гаманець", "Дата", "Тип", "Сума", "Учасник", "Збір", "Категорія", "Коментар", "Звіт"]].concat(
     filteredTx().map((t) => [walletName(W(t)), fmtDate(t.date), t.type === "income" ? "Надходження" : "Витрата", String(t.type === "income" ? t.amount : -t.amount).replace(".", ","),
-      personById(t.personId)?.name || "", collById(t.collectionId)?.title || "", t.category, t.method === "card" ? "Картка" : "Готівка", t.comment,
+      personById(t.personId)?.name || "", collById(t.collectionId)?.title || "", t.category, t.comment,
       db.reports.find((r) => r.id === t.reportId)?.number || ""])
   );
   download(`operacii${curWallet ? "-" + walletName(curWallet).replace(/[^\p{L}\d]+/gu, "_") : ""}-${today()}.csv`, "﻿" + rows.map((r) => r.map(q).join(";")).join("\n"), "text/csv");

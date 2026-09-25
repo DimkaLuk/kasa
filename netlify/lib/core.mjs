@@ -63,7 +63,6 @@ function cleanTx(b, db, walletId = "") {
     personId,
     collectionId,
     category: type === "expense" ? str(b.category, 60) || "Інше" : "",
-    method: b.method === "card" ? "card" : "cash",
     comment: str(b.comment, 300),
   };
 }
@@ -91,7 +90,7 @@ function cleanTransfer(b, db) {
   const amount = num(b.amount);
   if (!(amount > 0)) throw new Error("Сума має бути більше 0");
   const date = isDate(b.date) ? b.date : new Date().toISOString().slice(0, 10);
-  const common = { amount, date, personId: "", collectionId: "", method: b.method === "cash" ? "cash" : "card", comment: str(b.comment, 300) };
+  const common = { amount, date, personId: "", collectionId: "", comment: str(b.comment, 300) };
   return [
     { ...common, type: "expense", walletId: from, peerWallet: to, category: "Переказ" },
     { ...common, type: "income", walletId: to, peerWallet: from, category: "" },
@@ -177,7 +176,7 @@ export async function handle(req, store, password) {
         if (!items.length) throw new Error("Вкажіть суму хоча б для одного учасника");
         const added = items.map((x) => ({
           id: uid(),
-          ...cleanTx({ type: "income", date: body.date, method: body.method, collectionId: body.collectionId, personId: x.personId, amount: x.amount, comment: x.comment ?? body.comment }, db),
+          ...cleanTx({ type: "income", date: body.date, collectionId: body.collectionId, personId: x.personId, amount: x.amount, comment: x.comment ?? body.comment }, db),
           createdAt: now,
         }));
         db.tx.push(...added);

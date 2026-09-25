@@ -61,7 +61,7 @@ def category(c):
 tx, unknown = [], collections.Counter()
 for rownum, v in rows:
     ts, typ = v[0], v[1]
-    base = {"id": uid(), "date": ts.date().isoformat(), "method": "card", "createdAt": iso(ts), "srcRow": rownum}
+    base = {"id": uid(), "date": ts.date().isoformat(), "createdAt": iso(ts), "srcRow": rownum}
     if typ == "Прихід":
         name = key(v[2]); name = ALIAS.get(name, name)
         comment = norm(v[4])
@@ -152,7 +152,7 @@ for name, note, hint in WALLETS:
         last_dt = dt
         c = norm(v[3])
         ts = iso(dt.replace(hour=12) + datetime.timedelta(seconds=n))
-        base = {"date": dt.date().isoformat(), "walletId": w["id"], "method": "card", "personId": "", "collectionId": "", "createdAt": ts}
+        base = {"date": dt.date().isoformat(), "walletId": w["id"], "personId": "", "collectionId": "", "createdAt": ts}
         inc_v, exp_v = v[1], v[2]
         if isinstance(inc_v, (int, float)) and inc_v:
             # якщо в рядку є і прихід, і витрата — коментар стосується витрати
@@ -193,7 +193,7 @@ for m in main_top:
     if not w or m["date"] <= w["lastDate"]: continue
     tid = uid(); used.add(m["id"]); late += 1
     m.update({"transferId": tid, "peerWallet": w["id"], "category": "Переказ"})
-    wtx_all.append({"id": uid(), "type": "income", "amount": m["amount"], "date": m["date"], "walletId": w["id"], "method": "card",
+    wtx_all.append({"id": uid(), "type": "income", "amount": m["amount"], "date": m["date"], "walletId": w["id"],
                     "personId": "", "collectionId": "", "category": "", "createdAt": m["createdAt"], "transferId": tid, "peerWallet": "",
                     "comment": m["comment"] + " (немає в таблиці банки — з журналу каси)"})
 unmatched_main = [t for t in main_top if t["id"] not in used]
