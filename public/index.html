@@ -32,6 +32,7 @@
     <nav class="tabs" id="tabs">
       <button data-tab="overview" class="active">Огляд</button>
       <button data-tab="tx">Операції</button>
+      <button data-tab="recon">Звірка</button>
       <button data-tab="collections" class="main-only">Збори</button>
       <button data-tab="people" class="main-only">Учасники</button>
       <button data-tab="reports">Звіти</button>
@@ -124,6 +125,42 @@
         </div>
         <div class="summary" id="pSummary"></div>
         <div id="peopleList" class="list"></div>
+      </section>
+
+      <!-- Звірка -->
+      <section data-view="recon" class="hidden">
+        <div class="card muted small-text">
+          Звірка з рухами по карті: знайдіть операцію й поставте галочку — вона перейде в блок «Звірені».
+          Якщо в операції пізніше змінити суму, дату чи тип, позначка знімається й її треба звірити знову.
+        </div>
+        <div class="filters card">
+          <input id="rSearch" type="search" placeholder="Пошук: ім'я, коментар, категорія, сума">
+          <select id="rType">
+            <option value="">Усі типи</option>
+            <option value="income">Надходження</option>
+            <option value="expense">Витрати</option>
+          </select>
+          <input id="rFrom" type="date" title="З дати">
+          <input id="rTo" type="date" title="По дату">
+          <select id="rPeriod">
+            <option value="">Період…</option>
+            <option value="month">Цей місяць</option>
+            <option value="prev">Минулий місяць</option>
+            <option value="year">Цей рік</option>
+            <option value="all">Увесь час</option>
+          </select>
+        </div>
+        <div class="summary" id="rSummary"></div>
+        <div class="card recon-card">
+          <div class="recon-head"><h2>Не звірені <span class="muted" id="rTodoCount"></span></h2>
+            <button class="btn ghost small" id="rCheckAll" type="button">Позначити всі показані</button></div>
+          <div id="rTodo" class="list"></div>
+        </div>
+        <div class="card recon-card done">
+          <div class="recon-head"><h2>Звірені <span class="muted" id="rDoneCount"></span></h2>
+            <button class="btn ghost small" id="rToggleDone" type="button">Сховати</button></div>
+          <div id="rDone" class="list"></div>
+        </div>
       </section>
 
       <!-- Збори -->

@@ -186,7 +186,10 @@ export async function handle(req, store, password) {
         const i = db.tx.findIndex((t) => t.id === id);
         if (i < 0) return json({ error: "Не знайдено" }, 404);
         if (txLocked(db.tx[i])) return json({ error: LOCKED }, 409);
-        db.tx[i] = { ...db.tx[i], ...cleanTx(body, db, W(db.tx[i])), updatedAt: now };
+        const next = cleanTx(body, db, W(db.tx[i]));
+        const moved = ["type", "amount", "date"].some((k) => next[k] !== db.tx[i][k]);
+        db.tx[i] = { ...db.tx[i], ...next, updatedAt: now };
+        if (moved) { delete db.tx[i].checked; delete db.tx[i].checkedAt; } // змінився рух — треба звірити знову
       } else if (m === "DELETE" && id) {
         // Переказ видаляється разом з другою стороною
         const group = cur?.transferId ? db.tx.filter((t) => t.transferId === cur.transferId) : [cur];
@@ -194,6 +197,17 @@ export async function handle(req, store, password) {
         const del = new Set(group.filter(Boolean).map((t) => t.id));
         db.tx = db.tx.filter((t) => !del.has(t.id));
       } else return json({ error: "Метод не підтримується" }, 405);
+    } else if (res === "check" && m === "POST") {
+      // Звірка з рухами по карті: позначка не змінює суму/дату, тож дозволена й для операцій у звітах
+      const ids = new Set((Array.isArray(body.ids) ? body.ids : []).slice(0, 5000).map((x) => str(x, 40)));
+      let n = 0;
+      for (const t of db.tx) {
+        if (!ids.has(t.id)) continue;
+        if (body.checked) { if (!t.checked) { t.checked = true; t.checkedAt = now; n++; } }
+        else if (t.checked) { delete t.checked; delete t.checkedAt; n++; }
+      }
+      await store.setJSON("db", db);
+      return json({ ok: true, updated: n });
     } else if (res === "transfer") {
       const group = id ? db.tx.filter((t) => t.transferId === id) : [];
       if (id && !group.length) return json({ error: "Не знайдено" }, 404);
@@ -203,7 +217,11 @@ export async function handle(req, store, password) {
         db.tx.push(...cleanTransfer(body, db).map((t) => ({ id: uid(), ...t, transferId, createdAt: now })));
       } else if (m === "PUT" && id) {
         const [out, inc] = cleanTransfer(body, db);
-        for (const t of group) Object.assign(t, t.type === "expense" ? out : inc, { updatedAt: now });
+        for (const t of group) {
+          const next = t.type === "expense" ? out : inc;
+          if (next.amount !== t.amount || next.date !== t.date || next.walletId !== W(t)) { delete t.checked; delete t.checkedAt; }
+          Object.assign(t, next, { updatedAt: now });
+        }
       } else if (m === "DELETE" && id) {
         db.tx = db.tx.filter((t) => t.transferId !== id);
       } else return json({ error: "Метод не підтримується" }, 405);

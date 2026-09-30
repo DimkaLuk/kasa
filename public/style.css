@@ -125,6 +125,21 @@ dialog::backdrop { background: rgba(10, 15, 20, .45); }
 
 .added { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); }
 
+/* Звірка */
+section[data-view="recon"] .filters { grid-template-columns: 2fr 1fr 1fr 1fr 1fr; }
+.recon-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.recon-head h2 { margin: 0; }
+.rrow { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 12px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); cursor: pointer; }
+.rrow:first-child { border-top: 0; }
+.rrow:hover { background: color-mix(in srgb, var(--brand) 6%, transparent); }
+.rrow input { width: 22px; height: 22px; margin: 0; grid-row: span 2; accent-color: var(--pos); cursor: pointer; }
+.rrow .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rrow .a { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.rrow .s { color: var(--muted); font-size: 13px; grid-column: 2 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recon-card.done .rrow .t, .recon-card.done .rrow .a { opacity: .65; }
+.recon-card .list { border: 0; box-shadow: none; border-radius: 0; margin: 0 -16px -16px; }
+.row.checked .t::before { content: "✓ "; color: var(--pos); }
+
 /* Гаманці */
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .wallet-sel { width: auto; max-width: 52vw; padding: 5px 8px; font-weight: 600; }
@@ -158,6 +173,7 @@ dialog.wide { width: min(720px, calc(100vw - 32px)); }
 @media (max-width: 800px) {
   .stats { grid-template-columns: 1fr 1fr; }
   section[data-view="collections"] .filters { grid-template-columns: 1fr 1fr; }
+  section[data-view="recon"] .filters { grid-template-columns: 1fr 1fr; }
   section[data-view="collections"] .filters select { grid-column: 1 / -1; }
   .stat.big { grid-column: 1 / -1; }
   .grid2 { grid-template-columns: 1fr; }

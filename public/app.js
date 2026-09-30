@@ -209,7 +209,7 @@ function render() {
   document.title = walletName(curWallet);
   $("#appTitle").textContent = db.settings.title || "Каса";
   renderWalletSel();
-  renderOverview(); renderTx(); renderCollections(); renderPeople(); renderReports(); renderSettings(); renderWallets();
+  renderOverview(); renderTx(); renderRecon(); renderCollections(); renderPeople(); renderReports(); renderSettings(); renderWallets();
 }
 
 function txRow(t) {
@@ -219,7 +219,7 @@ function txRow(t) {
   const c = collById(t.collectionId);
   const sub = [fmtDate(t.date), c ? c.title : "", t.comment].filter(Boolean).join(" · ");
   const sign = t.type === "income" ? "+" : "−";
-  return `<div class="row${t.reportId ? " locked" : ""}" data-tx="${t.id}">
+  return `<div class="row${t.reportId ? " locked" : ""}${t.checked ? " checked" : ""}" data-tx="${t.id}">
     <div class="t">${esc(title)}</div>
     <div class="a ${t.type === "income" ? "pos" : "neg"}">${sign}${money(t.amount)}</div>
     <div class="s">${esc(sub)}</div><div></div>
@@ -278,20 +278,29 @@ function renderOverview() {
   $("#recentList").innerHTML = recent.length ? recent.map(txRow).join("") : `<div class="empty">Ще немає операцій. Додайте перший внесок.</div>`;
 }
 
+// Спільний фільтр для «Операцій» і «Звірки»
+function matchTx(t, { q, type, from, to }) {
+  if (type && t.type !== type) return false;
+  if (from && t.date < from) return false;
+  if (to && t.date > to) return false;
+  if (q) {
+    const hay = [personById(t.personId)?.name, t.comment, t.category, collById(t.collectionId)?.title,
+      t.transferId ? walletName(t.peerWallet || "") : "", String(t.amount), fmtDate(t.date)].join(" ").toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  return true;
+}
+function periodRange(v) {
+  const d = new Date(), y = d.getFullYear(), mo = d.getMonth();
+  const iso = (dt) => dt.toLocaleDateString("sv-SE");
+  if (v === "month") return [iso(new Date(y, mo, 1)), iso(new Date(y, mo + 1, 0))];
+  if (v === "prev") return [iso(new Date(y, mo - 1, 1)), iso(new Date(y, mo, 0))];
+  if (v === "year") return [`${y}-01-01`, `${y}-12-31`];
+  return ["", ""];
+}
 function filteredTx() {
-  const q = $("#fSearch").value.trim().toLowerCase();
-  const type = $("#fType").value, from = $("#fFrom").value, to = $("#fTo").value;
-  return sortedTx().filter((t) => {
-    if (type && t.type !== type) return false;
-    if (from && t.date < from) return false;
-    if (to && t.date > to) return false;
-    if (q) {
-      const p = personById(t.personId);
-      const hay = [p?.name, t.comment, t.category, String(t.amount)].join(" ").toLowerCase();
-      if (!hay.includes(q)) return false;
-    }
-    return true;
-  });
+  const f = { q: $("#fSearch").value.trim().toLowerCase(), type: $("#fType").value, from: $("#fFrom").value, to: $("#fTo").value };
+  return sortedTx().filter((t) => matchTx(t, f));
 }
 function renderTx() {
   const list = filteredTx();
@@ -304,13 +313,7 @@ function renderTx() {
 }
 ["#fSearch", "#fType", "#fFrom", "#fTo"].forEach((s) => $(s).addEventListener("input", () => { txLimit = 100; $("#fPeriod").value = ""; renderTx(); }));
 $("#fPeriod").addEventListener("change", (e) => {
-  const v = e.target.value, d = new Date(), y = d.getFullYear(), mo = d.getMonth();
-  const iso = (dt) => dt.toLocaleDateString("sv-SE");
-  let from = "", to = "";
-  if (v === "month") { from = iso(new Date(y, mo, 1)); to = iso(new Date(y, mo + 1, 0)); }
-  if (v === "prev") { from = iso(new Date(y, mo - 1, 1)); to = iso(new Date(y, mo, 0)); }
-  if (v === "year") { from = `${y}-01-01`; to = `${y}-12-31`; }
-  $("#fFrom").value = from; $("#fTo").value = to; txLimit = 100; renderTx();
+  [$("#fFrom").value, $("#fTo").value] = periodRange(e.target.value); txLimit = 100; renderTx();
 });
 $("#txList").addEventListener("click", (e) => { if (e.target.id === "moreTx") { txLimit += 200; renderTx(); } });
 
@@ -839,6 +842,80 @@ function reportModal(r) {
   });
 }
 
+// ===== Звірка з рухами по карті =====
+let reconLimit = 100, reconDoneLimit = 50, reconShowDone = true;
+function txTitle(t) {
+  if (t.transferId) return (t.type === "income" ? "← з: " : "→ у: ") + walletName(t.peerWallet || "");
+  return t.type === "income" ? personById(t.personId)?.name || "Надходження" : t.category;
+}
+function reconRow(t) {
+  const c = collById(t.collectionId);
+  const sub = [fmtDate(t.date), c?.title, t.comment, t.checked && t.checkedAt ? "звірено " + new Date(t.checkedAt).toLocaleDateString("uk-UA") : ""].filter(Boolean).join(" · ");
+  return `<label class="rrow" data-rid="${t.id}">
+    <input type="checkbox" ${t.checked ? "checked" : ""}>
+    <span class="t">${esc(txTitle(t))}</span>
+    <span class="a ${t.type === "income" ? "pos" : "neg"}">${t.type === "income" ? "+" : "−"}${money(t.amount)}</span>
+    <span class="s">${esc(sub)}</span>
+  </label>`;
+}
+function reconFiltered() {
+  const f = { q: $("#rSearch").value.trim().toLowerCase(), type: $("#rType").value, from: $("#rFrom").value, to: $("#rTo").value };
+  return sortedTx().filter((t) => matchTx(t, f));
+}
+function renderRecon() {
+  const list = reconFiltered();
+  const todo = list.filter((t) => !t.checked), done = list.filter((t) => t.checked);
+  const sum = (l, type) => l.filter((t) => t.type === type).reduce((s, t) => s + t.amount, 0);
+  $("#rSummary").innerHTML = `<span>Звірено: <b>${done.length} з ${list.length}</b></span>` +
+    `<span>Не звірено: надходження <b class="pos">${money(sum(todo, "income"))}</b>, витрати <b class="neg">${money(sum(todo, "expense"))}</b></span>` +
+    `<span>Звірено: <b class="pos">+${money(sum(done, "income"))}</b> / <b class="neg">−${money(sum(done, "expense"))}</b></span>`;
+  $("#rTodoCount").textContent = `(${todo.length})`;
+  $("#rDoneCount").textContent = `(${done.length})`;
+  $("#rCheckAll").classList.toggle("hidden", !todo.length);
+  $("#rTodo").innerHTML = todo.length
+    ? todo.slice(0, reconLimit).map(reconRow).join("") + (todo.length > reconLimit ? `<button class="btn more" data-more="todo">Показати ще (${todo.length - reconLimit})</button>` : "")
+    : `<div class="empty">${list.length ? "Усе звірено 🎉" : "Немає операцій за цими фільтрами"}</div>`;
+  $("#rToggleDone").textContent = reconShowDone ? "Сховати" : "Показати";
+  $("#rDone").classList.toggle("hidden", !reconShowDone);
+  // Нещодавно звірені — зверху, щоб одразу бачити, що галочка спрацювала
+  const doneSorted = [...done].sort((a, b) => (b.checkedAt || "").localeCompare(a.checkedAt || ""));
+  $("#rDone").innerHTML = done.length
+    ? doneSorted.slice(0, reconDoneLimit).map(reconRow).join("") + (done.length > reconDoneLimit ? `<button class="btn more" data-more="done">Показати ще (${done.length - reconDoneLimit})</button>` : "")
+    : `<div class="empty">Ще нічого не звірено</div>`;
+}
+// Позначки відправляємо по черзі, щоб швидкі кліки не перезаписали одне одного на сервері
+let checkQueue = Promise.resolve();
+function setChecked(ids, checked) {
+  const now = new Date().toISOString();
+  const touched = db.tx.filter((t) => ids.includes(t.id));
+  const prev = touched.map((t) => [t, t.checked, t.checkedAt]);
+  for (const t of touched) { if (checked) { t.checked = true; t.checkedAt = t.checkedAt || now; } else { delete t.checked; delete t.checkedAt; } }
+  renderRecon(); renderTx();
+  checkQueue = checkQueue.then(() => api("check", "POST", { ids, checked })).catch((err) => {
+    for (const [t, c, at] of prev) { if (c) { t.checked = c; t.checkedAt = at; } else { delete t.checked; delete t.checkedAt; } }
+    renderRecon(); renderTx(); toast("Не збережено: " + err.message);
+  });
+}
+$("section[data-view=recon]").addEventListener("change", (e) => {
+  const row = e.target.closest("[data-rid]");
+  if (row && e.target.type === "checkbox") setChecked([row.dataset.rid], e.target.checked);
+});
+$("section[data-view=recon]").addEventListener("click", (e) => {
+  const more = e.target.closest("[data-more]");
+  if (more) { more.dataset.more === "todo" ? (reconLimit += 200) : (reconDoneLimit += 200); renderRecon(); }
+});
+["#rSearch", "#rType", "#rFrom", "#rTo"].forEach((sel) => $(sel).addEventListener("input", () => {
+  if (sel !== "#rSearch" && sel !== "#rType") $("#rPeriod").value = "";
+  reconLimit = 100; renderRecon();
+}));
+$("#rPeriod").addEventListener("change", (e) => { [$("#rFrom").value, $("#rTo").value] = periodRange(e.target.value); reconLimit = 100; renderRecon(); });
+$("#rToggleDone").addEventListener("click", () => { reconShowDone = !reconShowDone; renderRecon(); });
+$("#rCheckAll").addEventListener("click", () => {
+  const todo = reconFiltered().filter((t) => !t.checked);
+  if (!todo.length || !confirm(`Позначити звіреними всі показані операції (${todo.length})?`)) return;
+  setChecked(todo.map((t) => t.id), true);
+});
+
 // ===== Гаманці підрозділів =====
 function renderWalletSel() {
   const sel = $("#walletSel");
@@ -929,10 +1006,10 @@ function download(name, content, type) {
 }
 $("#exportTxCsv").addEventListener("click", () => {
   const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const rows = [["Гаманець", "Дата", "Тип", "Сума", "Учасник", "Збір", "Категорія", "Коментар", "Звіт"]].concat(
+  const rows = [["Гаманець", "Дата", "Тип", "Сума", "Учасник", "Збір", "Категорія", "Коментар", "Звіт", "Звірено"]].concat(
     filteredTx().map((t) => [walletName(W(t)), fmtDate(t.date), t.type === "income" ? "Надходження" : "Витрата", String(t.type === "income" ? t.amount : -t.amount).replace(".", ","),
       personById(t.personId)?.name || "", collById(t.collectionId)?.title || "", t.category, t.comment,
-      db.reports.find((r) => r.id === t.reportId)?.number || ""])
+      db.reports.find((r) => r.id === t.reportId)?.number || "", t.checked ? "так" : ""])
   );
   download(`operacii${curWallet ? "-" + walletName(curWallet).replace(/[^\p{L}\d]+/gu, "_") : ""}-${today()}.csv`, "﻿" + rows.map((r) => r.map(q).join(";")).join("\n"), "text/csv");
 });
