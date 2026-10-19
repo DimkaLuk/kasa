@@ -433,6 +433,7 @@ function txModal(t, presetType, presetPerson, presetColl) {
   const inMain = t ? !W(t) : isMain();
   const locked = !!t?.reportId;
   const added = { inc: { n: 0, sum: 0 }, exp: { n: 0, sum: 0 } };
+  let amountManual = false, suggestAmount = () => {};
   // Нова витрата — за замовчуванням «Інше»; категорію, якої вже немає в налаштуваннях, зберігаємо у списку
   const selCat = t?.category || "Інше";
   const cats = db.settings.categories.includes(selCat) ? db.settings.categories : [...db.settings.categories, selCat];
@@ -467,6 +468,7 @@ function txModal(t, presetType, presetPerson, presetColl) {
         $("#modalBody input[name=amount]").value = inc && inMain && db.settings.monthlyFee ? db.settings.monthlyFee : "";
         $("#modalBody input[name=comment]").value = "";
         if (inc && inMain) $("#modalBody select[name=personId]").value = "";
+        amountManual = false; suggestAmount();
         const parts = [];
         if (added.inc.n) parts.push(`${inMain ? "внесків" : "надходжень"}: ${added.inc.n} на ${money(added.inc.sum)}`);
         if (added.exp.n) parts.push(`витрат: ${added.exp.n} на ${money(added.exp.sum)}`);
@@ -493,14 +495,28 @@ function txModal(t, presetType, presetPerson, presetColl) {
     const d = personDebts(pSel.value);
     if (d.length) cSel.value = d[d.length - 1].c.id;
   }
-  pSel.addEventListener("change", () => fillColl(cSel.value));
+  // Очікувана сума збору (або залишок боргу учасника) підставляється, поки суму не змінили вручну
+  const amt = $("#modalBody input[name=amount]");
+  amountManual = !!t;
+  amt.addEventListener("input", () => { amountManual = true; });
+  suggestAmount = () => {
+    if (amountManual || !inMain || $("#modalBody input[name=type]:checked").value !== "income") return;
+    const c = collById(cSel.value);
+    if (!c?.amount) { amt.value = db.settings.monthlyFee || ""; return; } // збір без суми — прибираємо автопідстановку
+    const paid = pSel.value ? collPaidMap(c)[pSel.value] || 0 : 0;
+    const rest = Math.round((c.amount - paid) * 100) / 100;
+    amt.value = rest > 0 ? rest : c.amount;
+  };
+  pSel.addEventListener("change", () => { fillColl(cSel.value); suggestAmount(); });
+  cSel.addEventListener("change", suggestAmount);
+  suggestAmount();
   const sync = () => {
     const v = $("#modalBody input[name=type]:checked").value;
     $$("#modalBody .f-income").forEach((el) => el.classList.toggle("hidden", v !== "income" || (!inMain && el.classList.contains("main-field"))));
     $$("#modalBody .f-expense").forEach((el) => el.classList.toggle("hidden", v !== "expense"));
     if (!t) $("#modalTitle").textContent = v === "income" ? (inMain ? "Новий внесок" : "Нове надходження") : "Нова витрата";
   };
-  $$("#modalBody input[name=type]").forEach((r) => r.addEventListener("change", sync));
+  $$("#modalBody input[name=type]").forEach((r) => r.addEventListener("change", () => { sync(); suggestAmount(); }));
   sync();
 }
 document.addEventListener("click", (e) => {
