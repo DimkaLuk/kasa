@@ -432,7 +432,7 @@ function txModal(t, presetType, presetPerson, presetColl) {
   const type = t?.type || presetType || "income";
   const inMain = t ? !W(t) : isMain();
   const locked = !!t?.reportId;
-  const added = { n: 0, sum: 0 };
+  const added = { inc: { n: 0, sum: 0 }, exp: { n: 0, sum: 0 } };
   // Нова витрата — за замовчуванням «Інше»; категорію, якої вже немає в налаштуваннях, зберігаємо у списку
   const selCat = t?.category || "Інше";
   const cats = db.settings.categories.includes(selCat) ? db.settings.categories : [...db.settings.categories, selCat];
@@ -458,15 +458,22 @@ function txModal(t, presetType, presetPerson, presetColl) {
       if (!t) body.walletId = curWallet;
       await save(t ? "tx/" + t.id : "tx", t ? "PUT" : "POST", body);
       toast(t ? "Змінено" : "Додано");
-      if (!t && body.type === "expense") {
-        // Серія витрат: форма не закривається, очищаємо суму й коментар, дата й категорія лишаються
-        added.n++; added.sum += Number(body.amount) || 0;
-        $("#modalBody input[name=amount]").value = "";
+      if (!t) {
+        // Серія записів: форма не закривається. Очищаємо суму й коментар (у внеску — і учасника),
+        // дата, категорія та збір лишаються як у попередньому записі
+        const inc = body.type === "income";
+        const k = inc ? "inc" : "exp";
+        added[k].n++; added[k].sum += Number(body.amount) || 0;
+        $("#modalBody input[name=amount]").value = inc && inMain && db.settings.monthlyFee ? db.settings.monthlyFee : "";
         $("#modalBody input[name=comment]").value = "";
-        $("#txAdded").textContent = `Додано витрат: ${added.n} на ${money(added.sum)}. Можна вносити наступну.`;
+        if (inc && inMain) $("#modalBody select[name=personId]").value = "";
+        const parts = [];
+        if (added.inc.n) parts.push(`${inMain ? "внесків" : "надходжень"}: ${added.inc.n} на ${money(added.inc.sum)}`);
+        if (added.exp.n) parts.push(`витрат: ${added.exp.n} на ${money(added.exp.sum)}`);
+        $("#txAdded").textContent = `Додано ${parts.join(", ")}. Можна вносити наступний запис.`;
         $("#txAdded").classList.remove("hidden");
         $("#modalCancel").textContent = "Готово";
-        $("#modalBody input[name=amount]").focus();
+        (inc && inMain ? $("#modalBody select[name=personId]") : $("#modalBody input[name=amount]")).focus();
         return KEEP_OPEN;
       }
     },
