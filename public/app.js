@@ -419,9 +419,19 @@ $("#modalDelete").addEventListener("click", async () => {
 modal.addEventListener("close", () => { const b = $("#modalDelete"); b.dataset.confirm = ""; b.textContent = "Видалити"; });
 
 // ----- Операція -----
-function personOptions(selected) {
-  const active = db.people.filter((p) => p.active || p.id === selected).sort((a, b) => a.name.localeCompare(b.name, "uk"));
-  return `<option value="">— без учасника —</option>` + active.map((p) => `<option value="${p.id}" ${p.id === selected ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+// collId — якщо вибрано збір, ховаємо тих, хто за нього вже вніс повністю
+function personOptions(selected, collId) {
+  const active = db.people.filter((p) => p.active || p.id === selected).sort(byName);
+  const opt = (p) => `<option value="${p.id}" ${p.id === selected ? "selected" : ""}>${esc(p.name)}</option>`;
+  const head = `<option value="">— без учасника —</option>`;
+  const c = collId && collById(collId);
+  if (!c) return head + active.map(opt).join("");
+  const paid = collPaidMap(c), inList = new Set(c.personIds);
+  const open = (p) => p.id === selected || (c.amount > 0 ? (paid[p.id] || 0) < c.amount - 0.001 : !(paid[p.id] > 0));
+  const todo = active.filter((p) => inList.has(p.id) && open(p));
+  const others = active.filter((p) => !inList.has(p.id) && open(p));
+  return head + `<optgroup label="Ще не внесли (${todo.length})">${todo.map(opt).join("")}</optgroup>` +
+    (others.length ? `<optgroup label="Не в списку збору">${others.map(opt).join("")}</optgroup>` : "");
 }
 function collOptions(personId, selected) {
   const list = sortedCollections().filter((c) => c.id === selected || (!c.closed && (!personId || c.personIds.includes(personId))));
@@ -433,7 +443,7 @@ function txModal(t, presetType, presetPerson, presetColl) {
   const inMain = t ? !W(t) : isMain();
   const locked = !!t?.reportId;
   const added = { inc: { n: 0, sum: 0 }, exp: { n: 0, sum: 0 } };
-  let amountManual = false, suggestAmount = () => {};
+  let amountManual = false, suggestAmount = () => {}, fillPeople = () => {};
   // Нова витрата — за замовчуванням «Інше»; категорію, якої вже немає в налаштуваннях, зберігаємо у списку
   const selCat = t?.category || "Інше";
   const cats = db.settings.categories.includes(selCat) ? db.settings.categories : [...db.settings.categories, selCat];
@@ -467,7 +477,7 @@ function txModal(t, presetType, presetPerson, presetColl) {
         added[k].n++; added[k].sum += Number(body.amount) || 0;
         $("#modalBody input[name=amount]").value = inc && inMain && db.settings.monthlyFee ? db.settings.monthlyFee : "";
         $("#modalBody input[name=comment]").value = "";
-        if (inc && inMain) $("#modalBody select[name=personId]").value = "";
+        if (inc && inMain) { $("#modalBody select[name=personId]").value = ""; fillPeople(); } // щойно внесений зникає зі списку
         amountManual = false; suggestAmount();
         const parts = [];
         if (added.inc.n) parts.push(`${inMain ? "внесків" : "надходжень"}: ${added.inc.n} на ${money(added.inc.sum)}`);
@@ -507,8 +517,10 @@ function txModal(t, presetType, presetPerson, presetColl) {
     const rest = Math.round((c.amount - paid) * 100) / 100;
     amt.value = rest > 0 ? rest : c.amount;
   };
+  fillPeople = () => { pSel.innerHTML = personOptions(pSel.value, t ? "" : cSel.value); };
+  fillPeople();
   pSel.addEventListener("change", () => { fillColl(cSel.value); suggestAmount(); });
-  cSel.addEventListener("change", suggestAmount);
+  cSel.addEventListener("change", () => { fillPeople(); suggestAmount(); });
   suggestAmount();
   const sync = () => {
     const v = $("#modalBody input[name=type]:checked").value;
